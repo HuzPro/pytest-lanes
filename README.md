@@ -281,10 +281,17 @@ test-level spreading within an environment.
 
 ## Roadmap
 
-- Layer `pytest-xdist` *inside* a lane (`lane_numprocesses`) so homogeneous
-  lanes get test-level spreading too.
-- `pyproject.toml` (`[tool.pytest-lanes]`) configuration.
-- Per-lane OS gating (`requires_os`) for platform-specific lanes.
+Details and sequencing in [ROADMAP.md](ROADMAP.md). Headlines:
+
+- **Zero-config lanes** — `--lane-def name=path` for ad-hoc/tox usage and
+  `--lanes-auto` (one lane per test directory) for true drop-in use with
+  no config file at all.
+- **Duration-aware scheduling** — a bounded worker pool with
+  longest-lane-first queueing (sane behavior on 2-core CI runners), a
+  per-file duration cache, and opt-in lane sharding that moves file-sized
+  work to idle workers only when it beats the environment spin-up cost.
+- Layer `pytest-xdist` *inside* a homogeneous lane (`lane_numprocesses`).
+- `pyproject.toml` configuration; per-lane OS gating (`requires_os`).
 
 ## Development
 
