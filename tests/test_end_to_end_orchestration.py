@@ -1,0 +1,100 @@
+"""End-to-end tests: a real ``pytest`` invocation fans out into lane subprocesses.
+
+Each test generates a miniature two-lane project in ``tmp_path``, runs
+``python -m pytest .`` there with the installed plugin, and asserts on the
+user-observable outcome: lanes execute, exit codes propagate, and the lane
+summary is printed. These tests require the package to be installed in the
+current environment (``pip install -e .``).
+"""
+
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+from pytest_lanes.constants import TEST_ORCHESTRATION_CHILD_ENV
+
+
+_PROJECT_INI = """\
+[pytest]
+markers =
+\tio: simulated infrastructure-heavy tests
+\tunit: fast unit tests
+
+[pytest-lanes]
+lanes = io other
+subprocess_order_standard = io other
+
+[pytest-lanes:io]
+marker = io
+classifier_path_prefixes = io_tests/
+subprocess_paths = io_tests
+
+[pytest-lanes:other]
+marker = unit
+classifier_fallback = true
+subprocess_ignore_other_lanes = true
+"""
+
+
+def _write_demo_project(root: Path) -> None:
+    (root / "pytest.ini").write_text(_PROJECT_INI, encoding="utf-8")
+    io_dir = root / "io_tests"
+    io_dir.mkdir()
+    (io_dir / "test_io.py").write_text(
+        "def test_io_lane_runs():\n    assert True\n", encoding="utf-8"
+    )
+    unit_dir = root / "unit_tests"
+    unit_dir.mkdir()
+    (unit_dir / "test_unit.py").write_text(
+        "def test_unit_lane_runs():\n    assert True\n", encoding="utf-8"
+    )
+
+
+def _run_pytest_in(root: Path) -> subprocess.CompletedProcess[str]:
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if key != TEST_ORCHESTRATION_CHILD_ENV
+    }
+    # Keep child output UTF-8 so the rich table renders identically on
+    # Windows runners with legacy console encodings.
+    env["PYTHONIOENCODING"] = "utf-8"
+    return subprocess.run(
+        [sys.executable, "-m", "pytest", "."],
+        cwd=root,
+        env=env,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=300,
+    )
+
+
+def test_pytest_run_fans_out_into_one_subprocess_per_lane(tmp_path: Path) -> None:
+    _write_demo_project(tmp_path)
+
+    result = _run_pytest_in(tmp_path)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Lane Test Summary" in result.stdout
+    assert "io" in result.stdout
+    assert "other" in result.stdout
+    assert "FAIL" not in result.stdout
+
+
+def test_failing_lane_propagates_exit_code_and_surfaces_its_output(
+    tmp_path: Path,
+) -> None:
+    _write_demo_project(tmp_path)
+    (tmp_path / "unit_tests" / "test_failing.py").write_text(
+        "def test_broken():\n    assert False\n", encoding="utf-8"
+    )
+
+    result = _run_pytest_in(tmp_path)
+
+    assert result.returncode != 0
+    assert "test_broken" in result.stdout
+    assert "Lane Test Summary" in result.stdout
