@@ -6,16 +6,27 @@ Two pure functions consumed by the plugin hooks:
   :class:`~pytest_lanes.config.LaneSpec` that owns it. Class-base-name
   matches outrank path-based rules so container-backed tests follow the
   container regardless of where their file lives.
-* :func:`build_lane_commands` — emit one argv per lane subprocess for the
-  selected mode (``"standard"`` or ``"full"``), wired with ``--ignore=`` flags
-  derived from sibling lanes when ``subprocess_ignore_other_lanes`` is set.
+* :func:`build_lane_commands` — emit one :class:`LaneCommand` per lane
+  subprocess for the selected mode (``"standard"`` or ``"full"``), wired with
+  ``--ignore=`` flags derived from sibling lanes when
+  ``subprocess_ignore_other_lanes`` is set.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 from pytest_lanes.config import LaneConfig, LaneSpec
+
+
+@dataclass(frozen=True)
+class LaneCommand:
+    """One lane subprocess: its pytest argv (minus the interpreter) and env overrides."""
+
+    name: str
+    args: tuple[str, ...]
+    env_set: tuple[tuple[str, str], ...] = ()
 
 
 def relative_test_path(item: object, rootpath: Path) -> str:
@@ -91,19 +102,14 @@ def build_lane_commands(
     mode: str,
     passthrough_args: tuple[str, ...],
     lane_config: LaneConfig,
-) -> list[dict[str, object]]:
-    """Build one pytest argv list per lane subprocess for the given mode.
-
-    Each returned dict has keys: ``name`` (lane name), ``args`` (argv list
-    minus the ``pytest`` invocation), and ``env_set`` (an iterable of
-    ``(key, value)`` tuples merged into the subprocess env).
-    """
+) -> list[LaneCommand]:
+    """Build one :class:`LaneCommand` per subprocess lane for the given mode."""
     if mode == "full":
         lane_specs = lane_config.full_subprocess_lanes()
     else:
         lane_specs = lane_config.standard_subprocess_lanes()
 
-    commands: list[dict[str, object]] = []
+    commands: list[LaneCommand] = []
     for spec in lane_specs:
         args: list[str] = [*passthrough_args, "--color=no"]
         args.extend(spec.subprocess_paths)
@@ -116,11 +122,11 @@ def build_lane_commands(
                 args.append(f"--ignore={other_path}")
 
         commands.append(
-            {
-                "name": spec.name,
-                "args": args,
-                "env_set": tuple(spec.subprocess_env_set),
-            }
+            LaneCommand(
+                name=spec.name,
+                args=tuple(args),
+                env_set=spec.subprocess_env_set,
+            )
         )
 
     return commands

@@ -15,7 +15,7 @@ Lane markers must be declared in the same file, in ``[pytest].markers``
 from __future__ import annotations
 
 import configparser
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 

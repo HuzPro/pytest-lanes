@@ -25,6 +25,8 @@ except ModuleNotFoundError:  # pragma: no cover - covered when rich is installed
 
 _ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-9;]*m")
 _PROGRESS_PERCENT_PATTERN = re.compile(r"\[(\s*\d{1,3})%\]")
+# The per-test result glyphs pytest prints before a [ NN%] progress marker.
+_PROGRESS_LINE_GLYPHS = ".sFEXx"
 _COLLECTED_PATTERN = re.compile(r"collected (\d+) items?")
 _SUMMARY_COUNTS_PATTERN = re.compile(r"(\d+) (passed|failed|skipped|error|deselected)")
 
@@ -67,9 +69,9 @@ def _compute_summary_metrics(
     lane_results: list[LaneResult],
     wall_seconds: float,
 ) -> SummaryMetrics:
-    sum_lane_seconds = sum(float(result["duration"]) for result in lane_results)
+    sum_lane_seconds = sum(result["duration"] for result in lane_results)
     parallelism_ratio = sum_lane_seconds / wall_seconds if wall_seconds > 0 else 0.0
-    max_lane_name_width = max((len(str(result["name"])) for result in lane_results), default=0)
+    max_lane_name_width = max((len(result["name"]) for result in lane_results), default=0)
     return {
         "sum_lane_seconds": sum_lane_seconds,
         "parallelism_ratio": parallelism_ratio,
@@ -80,20 +82,16 @@ def _compute_summary_metrics(
 def _collect_failed_test_lines(lane_results: list[LaneResult]) -> list[str]:
     failed_lines: list[str] = []
     for result in lane_results:
-        lane_name = str(result["name"])
-        failed_tests = result.get("failed_tests", [])
-        if not isinstance(failed_tests, list):
-            continue
-        for test_name in failed_tests:
-            failed_lines.append(f"> [{lane_name}] {test_name}")
+        for test_name in result["failed_tests"]:
+            failed_lines.append(f"> [{result['name']}] {test_name}")
     return failed_lines
 
 
 def _compute_aggregate_counts(lane_results: list[LaneResult]) -> tuple[int, int, int, int]:
-    total_collected = sum(int(r.get("collected_count", 0)) for r in lane_results)
-    total_passed = sum(int(r.get("passed_count", 0)) for r in lane_results)
-    total_failed = sum(len(r.get("failed_tests", [])) for r in lane_results)
-    total_skipped = sum(int(r.get("skipped_count", 0)) for r in lane_results)
+    total_collected = sum(r["collected_count"] for r in lane_results)
+    total_passed = sum(r["passed_count"] for r in lane_results)
+    total_failed = sum(len(r["failed_tests"]) for r in lane_results)
+    total_skipped = sum(r["skipped_count"] for r in lane_results)
     return total_collected, total_passed, total_failed, total_skipped
 
 
@@ -124,9 +122,9 @@ def format_orchestration_summary(
 
     lines = [SUMMARY_TITLE]
     for result in lane_results:
-        lane_name = str(result["name"]).ljust(max_lane_name_width)
-        status = "PASS" if int(result["exit_code"]) == 0 else "FAIL"
-        lines.append(f"> {lane_name} : {status} ({float(result['duration']):.2f}s)")
+        lane_name = result["name"].ljust(max_lane_name_width)
+        status = "PASS" if result["exit_code"] == 0 else "FAIL"
+        lines.append(f"> {lane_name} : {status} ({result['duration']:.2f}s)")
 
     lines.append(f"Parallelism ratio: {parallelism_ratio:.2f}x")
 
@@ -192,7 +190,7 @@ class LaneProgressReporter:
             pre = plain[:progress_match.start()].rstrip()
             space_idx = pre.rfind(" ")
             last_token = pre[space_idx + 1:] if space_idx >= 0 else pre
-            if last_token and all(c in ".sFEXx" for c in last_token):
+            if last_token and all(c in _PROGRESS_LINE_GLYPHS for c in last_token):
                 lane.passed_count += last_token.count(".") + last_token.count("X")
                 lane.skipped_count += last_token.count("s")
 
@@ -427,7 +425,7 @@ class RichLaneDisplay:
         self._console = Console()
 
     def start(self) -> None:
-        self._live: Live = Live(
+        self._live = Live(
             self._build_table(), console=self._console, refresh_per_second=_LIVE_TABLE_REFRESH_RATE
         )
         self._live.start()
@@ -440,13 +438,13 @@ class RichLaneDisplay:
         self, lane_results: list[LaneResult], max_lane_name_width: int
     ) -> None:
         for result in lane_results:
-            lane_name = str(result["name"]).ljust(max_lane_name_width)
-            status_is_pass = int(result["exit_code"]) == 0
+            lane_name = result["name"].ljust(max_lane_name_width)
+            status_is_pass = result["exit_code"] == 0
             status_text = "PASS" if status_is_pass else "FAIL"
             status_style = "bold green" if status_is_pass else "bold red"
             lane_line = (
                 f"> [bold]{lane_name}[/] [white]:[/] "
-                f"[{status_style}]{status_text}[/] [white]({float(result['duration']):.2f}s)[/]"
+                f"[{status_style}]{status_text}[/] [white]({result['duration']:.2f}s)[/]"
             )
             self._console.print(lane_line)
 

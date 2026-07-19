@@ -1,16 +1,14 @@
 """Behavioral tests for build_lane_commands driven by LaneConfig.
 
-Mirrors the parity assertions from the pre-refactor
-``test_build_lane_commands_for_full_mode`` and
-``test_build_lane_commands_for_standard_mode`` so the same lane subprocesses
-fire with the same argv as today, plus new coverage for the
-``subprocess_ignore_other_lanes`` and ``subprocess_env_set`` features.
+Each test pins the argv/env contract of one subprocess-lane feature: canonical
+ordering, path and node-id targeting, ``--ignore=`` wiring (explicit and
+``subprocess_ignore_other_lanes``), env propagation, and passthrough args.
 """
 
 from __future__ import annotations
 
 from pytest_lanes.config import LaneConfig, LaneSpec
-from pytest_lanes.lanes import build_lane_commands
+from pytest_lanes.lanes import LaneCommand, build_lane_commands
 from tests.test_lane_assignment import _example_lane_config
 
 
@@ -20,13 +18,13 @@ _FBV_NODEID = (
 )
 
 
-def _argv_of(commands: list[dict[str, object]], lane_name: str) -> list[str]:
+def _argv_of(commands: list[LaneCommand], lane_name: str) -> tuple[str, ...]:
     for command in commands:
-        if command["name"] == lane_name:
-            args = command["args"]
-            assert isinstance(args, list)
+        if command.name == lane_name:
+            args = command.args
+            assert isinstance(args, tuple)
             return args
-    raise AssertionError(f"Lane '{lane_name}' not found in commands: {[c['name'] for c in commands]}")
+    raise AssertionError(f"Lane '{lane_name}' not found in commands: {[c.name for c in commands]}")
 
 
 def test_standard_mode_emits_five_lane_subprocesses_in_canonical_order() -> None:
@@ -36,7 +34,7 @@ def test_standard_mode_emits_five_lane_subprocesses_in_canonical_order() -> None
         mode="standard", passthrough_args=("-q",), lane_config=config
     )
 
-    assert [command["name"] for command in commands] == [
+    assert [command.name for command in commands] == [
         "postgres",
         "timescale",
         "acceptance",
@@ -52,7 +50,7 @@ def test_full_mode_inserts_full_build_verification_before_http_adapter() -> None
         mode="full", passthrough_args=("-q",), lane_config=config
     )
 
-    assert [command["name"] for command in commands] == [
+    assert [command.name for command in commands] == [
         "postgres",
         "timescale",
         "acceptance",
@@ -86,9 +84,9 @@ def test_full_build_verification_lane_carries_env_set_into_command() -> None:
     config = _example_lane_config()
     commands = build_lane_commands(mode="full", passthrough_args=("-q",), lane_config=config)
 
-    fbv_command = next(c for c in commands if c["name"] == "full_build_verification")
+    fbv_command = next(c for c in commands if c.name == "full_build_verification")
 
-    assert ("BUILD_OUTPUT_DIR", "build/full-build-verification") in fbv_command["env_set"]
+    assert ("BUILD_OUTPUT_DIR", "build/full-build-verification") in fbv_command.env_set
 
 
 def test_other_lane_auto_ignores_paths_from_every_other_lane() -> None:
@@ -122,7 +120,7 @@ def test_passthrough_args_precede_lane_specific_args_for_every_lane() -> None:
     )
 
     for command in commands:
-        args = command["args"]
+        args = command.args
         assert args[0] == "-q"
         assert args[1] == "--tb=long"
 

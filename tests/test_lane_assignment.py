@@ -237,7 +237,6 @@ def test_class_base_name_promotes_unit_test_into_postgres_lane() -> None:
     )
 
     # A test whose class inherits from a container-base type belongs to the
-    # postgres lane regardless of its file path; this preserves the original
-    # _is_postgres_container_test_item promotion semantic.
+    # postgres lane regardless of its file path.
     spec = lane_for_item(item, _ROOT, _CONFIG)
     assert spec.name == "postgres"

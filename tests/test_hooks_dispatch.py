@@ -69,7 +69,7 @@ def test_plain_pytest_dot_dispatches_five_standard_lanes() -> None:
 
     assert result == 0
     dispatched_commands = mock_run.call_args.args[0]
-    assert [command["name"] for command in dispatched_commands] == [
+    assert [command.name for command in dispatched_commands] == [
         "postgres",
         "timescale",
         "acceptance",
@@ -92,7 +92,7 @@ def test_full_flag_dispatches_six_lanes_including_full_build_verification() -> N
 
     assert result == 0
     dispatched_commands = mock_run.call_args.args[0]
-    assert [command["name"] for command in dispatched_commands] == [
+    assert [command.name for command in dispatched_commands] == [
         "postgres",
         "timescale",
         "acceptance",
@@ -115,5 +115,5 @@ def test_full_build_verification_lane_propagates_env_set_into_command() -> None:
         hooks.pytest_cmdline_main(config)
 
     dispatched_commands = mock_run.call_args.args[0]
-    fbv = next(c for c in dispatched_commands if c["name"] == "full_build_verification")
-    assert ("BUILD_OUTPUT_DIR", "build/full-build-verification") in fbv["env_set"]
+    fbv = next(c for c in dispatched_commands if c.name == "full_build_verification")
+    assert ("BUILD_OUTPUT_DIR", "build/full-build-verification") in fbv.env_set
