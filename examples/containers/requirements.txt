@@ -1,0 +1,4 @@
+-e ../../[rich]
+pytest-xdist>=3
+testcontainers[postgres]>=4
+psycopg[binary]>=3

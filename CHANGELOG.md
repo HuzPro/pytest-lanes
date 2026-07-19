@@ -3,7 +3,14 @@
 ## 0.1.0 — 2026-07-20
 
 Initial release, extracted from the test infrastructure of a production
-monorepo where it replaced pytest-xdist for a 2.2x wall-clock win.
+monorepo.
+
+Benchmarked against every pytest-xdist distribution mode on that suite
+(~2,430 tests, two Docker database lanes): ~2.1x over serial pytest,
+1.15x–1.3x over tuned xdist, zero failures and lowest variance of any mode
+— full methodology and honest caveats in the README. Ships a
+Docker-backed example (`examples/containers`) reproducing the comparison
+at small scale.
 
 - Lane classification by exact path, path prefix, path suffix, test-class
   base name, and a fallback lane.
