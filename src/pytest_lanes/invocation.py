@@ -61,7 +61,9 @@ def has_targeted_paths(invocation_args_value: tuple[str, ...]) -> bool:
     return False
 
 
-def passthrough_args_for_lanes(invocation_args_value: tuple[str, ...]) -> tuple[str, ...]:
+def passthrough_args_for_lanes(
+    invocation_args_value: tuple[str, ...],
+) -> tuple[str, ...]:
     passthrough: list[str] = []
     for arg in invocation_args_value:
         if arg == ".":

@@ -8,7 +8,6 @@ pytest (``None``).
 from __future__ import annotations
 
 import os
-from pathlib import Path
 from unittest.mock import patch
 
 from pytest_lanes.constants import TEST_ORCHESTRATION_CHILD_ENV
@@ -49,13 +48,17 @@ def test_dot_target_without_full_flag_yields_standard_mode() -> None:
 
 
 def test_targeted_path_bypasses_orchestration_even_with_full_flag() -> None:
-    config = _FakeConfig(full=True, invocation_args=("test_full_build_verification.py", "--lanes-full"))
+    config = _FakeConfig(
+        full=True, invocation_args=("test_full_build_verification.py", "--lanes-full")
+    )
 
     assert orchestration_mode(config) is None
 
 
 def test_keyword_filter_bypasses_orchestration() -> None:
-    config = _FakeConfig(full=True, invocation_args=(".", "-k", "tracker", "--lanes-full"))
+    config = _FakeConfig(
+        full=True, invocation_args=(".", "-k", "tracker", "--lanes-full")
+    )
 
     assert orchestration_mode(config) is None
 

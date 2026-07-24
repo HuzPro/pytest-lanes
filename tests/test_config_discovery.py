@@ -44,7 +44,9 @@ classifier_fallback = true
 """
 
 
-def test_discovery_returns_none_when_no_config_file_declares_lanes(tmp_path: Path) -> None:
+def test_discovery_returns_none_when_no_config_file_declares_lanes(
+    tmp_path: Path,
+) -> None:
     (tmp_path / "pytest.ini").write_text("[pytest]\n", encoding="utf-8")
 
     assert load_lane_config_or_none(tmp_path) is None
@@ -107,10 +109,10 @@ def test_cmdline_main_returns_none_when_lanes_declare_no_subprocess_order() -> N
     )
     config = _FakeConfig(rootpath=Path("C:/repo"))
 
-    with patch.dict(
-        os.environ, {TEST_ORCHESTRATION_CHILD_ENV: ""}, clear=False
-    ), patch.object(hooks, "run_lane_commands") as mock_run, patch.object(
-        hooks, "_load_lane_config_for", return_value=marker_only_config
+    with (
+        patch.dict(os.environ, {TEST_ORCHESTRATION_CHILD_ENV: ""}, clear=False),
+        patch.object(hooks, "run_lane_commands") as mock_run,
+        patch.object(hooks, "_load_lane_config_for", return_value=marker_only_config),
     ):
         result = hooks.pytest_cmdline_main(config)
 

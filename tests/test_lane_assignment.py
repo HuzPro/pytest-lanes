@@ -57,9 +57,7 @@ def _example_lane_config() -> LaneConfig:
                 name="postgres",
                 marker="postgres_integration",
                 classifier_path_prefixes=("backend/postgres/tests/",),
-                classifier_paths=(
-                    "app/tests/test_first_run_configuration_service.py",
-                ),
+                classifier_paths=("app/tests/test_first_run_configuration_service.py",),
                 classifier_class_base_names=(
                     "PostgresTestCase",
                     "SharedPostgresContainerTestCase",
@@ -190,8 +188,7 @@ def test_full_build_verification_filename_is_classified_as_fbv_lane() -> None:
     item = _FakeItem(
         path=_ROOT / "test_full_build_verification.py",
         nodeid=(
-            "test_full_build_verification.py::"
-            "test_build_produces_windows_executable"
+            "test_full_build_verification.py::test_build_produces_windows_executable"
         ),
     )
 
@@ -213,10 +210,7 @@ def test_acceptance_path_prefix_is_classified_as_acceptance_lane() -> None:
 
 def test_first_run_configuration_service_is_classified_as_postgres_lane() -> None:
     item = _FakeItem(
-        path=_ROOT
-        / "app"
-        / "tests"
-        / "test_first_run_configuration_service.py",
+        path=_ROOT / "app" / "tests" / "test_first_run_configuration_service.py",
         nodeid=(
             "app/tests/test_first_run_configuration_service.py::"
             "TestFirstRunConfigurationServiceIntegration::"

@@ -101,7 +101,9 @@ def test_summary_text_contains_parallelism_and_failed_rollup() -> None:
 
     assert SUMMARY_TITLE in summary
     assert "Parallelism ratio: 1.75x" in summary
-    assert re.search(r"^>\s*postgres\s*:\s*FAIL \(15\.00s\)$", summary, flags=re.MULTILINE)
+    assert re.search(
+        r"^>\s*postgres\s*:\s*FAIL \(15\.00s\)$", summary, flags=re.MULTILINE
+    )
     assert re.search(r"^>\s*other\s*:\s*PASS \(20\.00s\)$", summary, flags=re.MULTILINE)
     assert "Sum time without parallelization: 35.00s" in summary
     assert "Total time taken: 20.00s" in summary
@@ -110,7 +112,9 @@ def test_summary_text_contains_parallelism_and_failed_rollup() -> None:
 
 
 def test_extract_failed_test_lines_strips_ansi_escape_sequences() -> None:
-    failed = extract_failed_test_lines("\x1b[31mFAILED tests/test_alpha.py::test_one - AssertionError\x1b[0m")
+    failed = extract_failed_test_lines(
+        "\x1b[31mFAILED tests/test_alpha.py::test_one - AssertionError\x1b[0m"
+    )
     assert failed == ["tests/test_alpha.py::test_one"]
 
 
@@ -147,7 +151,9 @@ def test_console_presenter_delegates_to_display_strategy() -> None:
         def stop(self) -> None:
             calls.append(("stop", None))
 
-        def print_summary(self, summary_reporter: LaneProgressReporter, wall_seconds: float) -> None:
+        def print_summary(
+            self, summary_reporter: LaneProgressReporter, wall_seconds: float
+        ) -> None:
             calls.append(("print_summary", (summary_reporter, wall_seconds)))
 
         def emit_lane_line(self, lane_name: str, line: str) -> None:
@@ -156,7 +162,9 @@ def test_console_presenter_delegates_to_display_strategy() -> None:
         def refresh(self) -> None:
             calls.append(("refresh", None))
 
-    def build_fake_display(_reporter: LaneProgressReporter, _show_lane_stream: bool) -> FakeDisplay:
+    def build_fake_display(
+        _reporter: LaneProgressReporter, _show_lane_stream: bool
+    ) -> FakeDisplay:
         return FakeDisplay()
 
     presenter = LaneConsolePresenter(reporter, display_factory=build_fake_display)
@@ -176,14 +184,18 @@ def test_console_presenter_delegates_to_display_strategy() -> None:
     ]
 
 
-def test_console_presenter_defaults_to_plain_display_when_rich_unavailable(monkeypatch) -> None:
+def test_console_presenter_defaults_to_plain_display_when_rich_unavailable(
+    monkeypatch,
+) -> None:
     reporter = LaneProgressReporter(clock=lambda: 100.0)
     reporter.register_lanes(["other"])
 
     init_calls: list[tuple[LaneProgressReporter, bool]] = []
 
     class FakePlainDisplay:
-        def __init__(self, summary_reporter: LaneProgressReporter, show_lane_stream: bool) -> None:
+        def __init__(
+            self, summary_reporter: LaneProgressReporter, show_lane_stream: bool
+        ) -> None:
             init_calls.append((summary_reporter, show_lane_stream))
 
         def start(self) -> None:
@@ -192,7 +204,9 @@ def test_console_presenter_defaults_to_plain_display_when_rich_unavailable(monke
         def stop(self) -> None:
             return
 
-        def print_summary(self, summary_reporter: LaneProgressReporter, wall_seconds: float) -> None:
+        def print_summary(
+            self, summary_reporter: LaneProgressReporter, wall_seconds: float
+        ) -> None:
             return
 
         def emit_lane_line(self, lane_name: str, line: str) -> None:
@@ -202,7 +216,9 @@ def test_console_presenter_defaults_to_plain_display_when_rich_unavailable(monke
             return
 
     class FakeRichDisplay:
-        def __init__(self, summary_reporter: LaneProgressReporter, show_lane_stream: bool) -> None:
+        def __init__(
+            self, summary_reporter: LaneProgressReporter, show_lane_stream: bool
+        ) -> None:
             raise AssertionError("rich strategy should not be selected")
 
     monkeypatch.setattr(lane_reporter, "HAS_RICH", False)
@@ -215,14 +231,18 @@ def test_console_presenter_defaults_to_plain_display_when_rich_unavailable(monke
     assert init_calls == [(reporter, True)]
 
 
-def test_console_presenter_defaults_to_rich_display_when_rich_available(monkeypatch) -> None:
+def test_console_presenter_defaults_to_rich_display_when_rich_available(
+    monkeypatch,
+) -> None:
     reporter = LaneProgressReporter(clock=lambda: 100.0)
     reporter.register_lanes(["other"])
 
     init_calls: list[tuple[LaneProgressReporter, bool]] = []
 
     class FakeRichDisplay:
-        def __init__(self, summary_reporter: LaneProgressReporter, show_lane_stream: bool) -> None:
+        def __init__(
+            self, summary_reporter: LaneProgressReporter, show_lane_stream: bool
+        ) -> None:
             init_calls.append((summary_reporter, show_lane_stream))
 
         def start(self) -> None:
@@ -231,7 +251,9 @@ def test_console_presenter_defaults_to_rich_display_when_rich_available(monkeypa
         def stop(self) -> None:
             return
 
-        def print_summary(self, summary_reporter: LaneProgressReporter, wall_seconds: float) -> None:
+        def print_summary(
+            self, summary_reporter: LaneProgressReporter, wall_seconds: float
+        ) -> None:
             return
 
         def emit_lane_line(self, lane_name: str, line: str) -> None:
@@ -241,7 +263,9 @@ def test_console_presenter_defaults_to_rich_display_when_rich_available(monkeypa
             return
 
     class FakePlainDisplay:
-        def __init__(self, summary_reporter: LaneProgressReporter, show_lane_stream: bool) -> None:
+        def __init__(
+            self, summary_reporter: LaneProgressReporter, show_lane_stream: bool
+        ) -> None:
             raise AssertionError("plain strategy should not be selected")
 
     monkeypatch.setattr(lane_reporter, "HAS_RICH", True)
@@ -269,7 +293,9 @@ def test_rich_display_builds_bordered_table() -> None:
     assert getattr(table, "show_edge", False) is True
 
 
-def test_capture_output_line_accumulates_passed_and_skipped_from_progress_dots() -> None:
+def test_capture_output_line_accumulates_passed_and_skipped_from_progress_dots() -> (
+    None
+):
     reporter = LaneProgressReporter(clock=lambda: 100.0)
     reporter.register_lanes(["other"])
     reporter.mark_started("other")
@@ -320,7 +346,9 @@ def test_summary_includes_aggregate_totals() -> None:
     reporter.mark_finished("postgres", exit_code=0)
 
     reporter.capture_output_line("other", "collected 3 items")
-    reporter.capture_output_line("other", "FAILED tests/test_x.py::test_fail - AssertionError")
+    reporter.capture_output_line(
+        "other", "FAILED tests/test_x.py::test_fail - AssertionError"
+    )
     reporter.capture_output_line("other", "===== 2 passed in 0.3s =====")
     reporter.mark_finished("other", exit_code=1)
 
@@ -358,8 +386,12 @@ def test_live_rows_include_collected_passed_failed_skipped() -> None:
     reporter.mark_started("postgres")
 
     reporter.capture_output_line("postgres", "collected 10 items")
-    reporter.capture_output_line("postgres", "FAILED tests/test_a.py::test_one - AssertionError: boom")
-    reporter.capture_output_line("postgres", "===== 1 failed, 7 passed, 2 skipped in 0.50s =====")
+    reporter.capture_output_line(
+        "postgres", "FAILED tests/test_a.py::test_one - AssertionError: boom"
+    )
+    reporter.capture_output_line(
+        "postgres", "===== 1 failed, 7 passed, 2 skipped in 0.50s ====="
+    )
     reporter.mark_finished("postgres", exit_code=1)
 
     row = reporter.live_rows()[0]

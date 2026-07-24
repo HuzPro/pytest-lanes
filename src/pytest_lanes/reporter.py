@@ -71,7 +71,9 @@ def _compute_summary_metrics(
 ) -> SummaryMetrics:
     sum_lane_seconds = sum(result["duration"] for result in lane_results)
     parallelism_ratio = sum_lane_seconds / wall_seconds if wall_seconds > 0 else 0.0
-    max_lane_name_width = max((len(result["name"]) for result in lane_results), default=0)
+    max_lane_name_width = max(
+        (len(result["name"]) for result in lane_results), default=0
+    )
     return {
         "sum_lane_seconds": sum_lane_seconds,
         "parallelism_ratio": parallelism_ratio,
@@ -87,7 +89,9 @@ def _collect_failed_test_lines(lane_results: list[LaneResult]) -> list[str]:
     return failed_lines
 
 
-def _compute_aggregate_counts(lane_results: list[LaneResult]) -> tuple[int, int, int, int]:
+def _compute_aggregate_counts(
+    lane_results: list[LaneResult],
+) -> tuple[int, int, int, int]:
     total_collected = sum(r["collected_count"] for r in lane_results)
     total_passed = sum(r["passed_count"] for r in lane_results)
     total_failed = sum(len(r["failed_tests"]) for r in lane_results)
@@ -136,7 +140,9 @@ def format_orchestration_summary(
     lines.append(f"Sum time without parallelization: {sum_lane_seconds:.2f}s")
     lines.append(f"Total time taken: {wall_seconds:.2f}s")
 
-    total_collected, total_passed, total_failed, total_skipped = _compute_aggregate_counts(lane_results)
+    total_collected, total_passed, total_failed, total_skipped = (
+        _compute_aggregate_counts(lane_results)
+    )
     lines.append(
         f"Total: {total_collected} collected | {total_passed} passed"
         f" | {total_failed} failed | {total_skipped} skipped"
@@ -186,10 +192,12 @@ class LaneProgressReporter:
     def _update_progress_and_counts(self, lane: LaneState, plain: str) -> None:
         progress_match = _PROGRESS_PERCENT_PATTERN.search(plain)
         if progress_match is not None:
-            lane.progress_percent = max(PROGRESS_MIN, min(PROGRESS_MAX, int(progress_match.group(1))))
-            pre = plain[:progress_match.start()].rstrip()
+            lane.progress_percent = max(
+                PROGRESS_MIN, min(PROGRESS_MAX, int(progress_match.group(1)))
+            )
+            pre = plain[: progress_match.start()].rstrip()
             space_idx = pre.rfind(" ")
-            last_token = pre[space_idx + 1:] if space_idx >= 0 else pre
+            last_token = pre[space_idx + 1 :] if space_idx >= 0 else pre
             if last_token and all(c in _PROGRESS_LINE_GLYPHS for c in last_token):
                 lane.passed_count += last_token.count(".") + last_token.count("X")
                 lane.skipped_count += last_token.count("s")
@@ -249,7 +257,9 @@ class LaneProgressReporter:
                 continue
 
             elapsed = max(now - lane.started_at, 0.0)
-            estimated_total = elapsed * (float(PROGRESS_MAX) / float(lane.progress_percent))
+            estimated_total = elapsed * (
+                float(PROGRESS_MAX) / float(lane.progress_percent)
+            )
             progress_based_remaining += max(estimated_total - elapsed, 0.0)
             progress_based_count += 1
         return progress_based_remaining, progress_based_count
@@ -269,12 +279,16 @@ class LaneProgressReporter:
         return remaining
 
     def estimated_remaining_seconds(self) -> float | None:
-        running_lanes = [lane for lane in self._lanes.values() if lane.status == LANE_STATUS_RUNNING]
+        running_lanes = [
+            lane for lane in self._lanes.values() if lane.status == LANE_STATUS_RUNNING
+        ]
         if not running_lanes:
             return 0.0
 
         now = self._clock()
-        progress_based_remaining, progress_based_count = self._estimate_from_progress(running_lanes, now)
+        progress_based_remaining, progress_based_count = self._estimate_from_progress(
+            running_lanes, now
+        )
 
         if progress_based_count == len(running_lanes):
             return progress_based_remaining
@@ -288,7 +302,9 @@ class LaneProgressReporter:
             return progress_based_remaining if progress_based_count > 0 else None
 
         average_duration = sum(completed_durations) / len(completed_durations)
-        remaining = progress_based_remaining + self._estimate_from_average(running_lanes, now, average_duration)
+        remaining = progress_based_remaining + self._estimate_from_average(
+            running_lanes, now, average_duration
+        )
         return remaining
 
     def failed_tests_for(self, lane_name: str) -> list[str]:
@@ -356,7 +372,9 @@ class LanePresenterDisplay(Protocol):
 
     def stop(self) -> None: ...
 
-    def print_summary(self, reporter: LaneProgressReporter, wall_seconds: float) -> None: ...
+    def print_summary(
+        self, reporter: LaneProgressReporter, wall_seconds: float
+    ) -> None: ...
 
     def emit_lane_line(self, lane_name: str, line: str) -> None: ...
 
@@ -381,7 +399,9 @@ class PlainLaneDisplay:
     def stop(self) -> None:
         return
 
-    def print_summary(self, reporter: LaneProgressReporter, wall_seconds: float) -> None:
+    def print_summary(
+        self, reporter: LaneProgressReporter, wall_seconds: float
+    ) -> None:
         lane_results = reporter.lane_results()
         summary_text = format_orchestration_summary(
             lane_results=lane_results,
@@ -418,7 +438,9 @@ class PlainLaneDisplay:
 
 
 class RichLaneDisplay:
-    def __init__(self, reporter: LaneProgressReporter, show_lane_stream: bool = False) -> None:
+    def __init__(
+        self, reporter: LaneProgressReporter, show_lane_stream: bool = False
+    ) -> None:
         self._reporter = reporter
         self._show_lane_stream = show_lane_stream
         self._live: Any | None = None
@@ -426,7 +448,9 @@ class RichLaneDisplay:
 
     def start(self) -> None:
         self._live = Live(
-            self._build_table(), console=self._console, refresh_per_second=_LIVE_TABLE_REFRESH_RATE
+            self._build_table(),
+            console=self._console,
+            refresh_per_second=_LIVE_TABLE_REFRESH_RATE,
         )
         self._live.start()
 
@@ -469,7 +493,9 @@ class RichLaneDisplay:
             f"[bold green]Total time taken:[/] [bold white]{wall_seconds:.2f}s[/]"
         )
 
-        total_collected, total_passed, total_failed, total_skipped = _compute_aggregate_counts(lane_results)
+        total_collected, total_passed, total_failed, total_skipped = (
+            _compute_aggregate_counts(lane_results)
+        )
         failed_style = "bold red" if total_failed > 0 else "green"
         skipped_style = "yellow" if total_skipped > 0 else "white"
         self._console.print(
@@ -479,7 +505,9 @@ class RichLaneDisplay:
             f" [dim]|[/] [{skipped_style}]{total_skipped}[/] skipped"
         )
 
-    def print_summary(self, reporter: LaneProgressReporter, wall_seconds: float) -> None:
+    def print_summary(
+        self, reporter: LaneProgressReporter, wall_seconds: float
+    ) -> None:
         lane_results = reporter.lane_results()
         metrics = _compute_summary_metrics(lane_results, wall_seconds)
         sum_lane_seconds = metrics["sum_lane_seconds"]
@@ -570,8 +598,14 @@ class RichLaneDisplay:
         for row in self._reporter.live_rows():
             cells = self._format_row_cells(row)
             table.add_row(
-                cells["name"], cells["status"], cells["progress"], cells["elapsed"],
-                cells["collected"], cells["passed"], cells["failed"], cells["skipped"],
+                cells["name"],
+                cells["status"],
+                cells["progress"],
+                cells["elapsed"],
+                cells["collected"],
+                cells["passed"],
+                cells["failed"],
+                cells["skipped"],
             )
         return table
 
@@ -590,7 +624,8 @@ class LaneConsolePresenter:
         self,
         reporter: LaneProgressReporter,
         show_lane_stream: bool = False,
-        display_factory: Callable[[LaneProgressReporter, bool], LanePresenterDisplay] | None = None,
+        display_factory: Callable[[LaneProgressReporter, bool], LanePresenterDisplay]
+        | None = None,
     ) -> None:
         factory = _build_default_display if display_factory is None else display_factory
         self._display = factory(reporter, show_lane_stream)
@@ -601,7 +636,9 @@ class LaneConsolePresenter:
     def stop(self) -> None:
         self._display.stop()
 
-    def print_summary(self, reporter: LaneProgressReporter, wall_seconds: float) -> None:
+    def print_summary(
+        self, reporter: LaneProgressReporter, wall_seconds: float
+    ) -> None:
         self._display.print_summary(reporter, wall_seconds)
 
     def emit_lane_line(self, lane_name: str, line: str) -> None:

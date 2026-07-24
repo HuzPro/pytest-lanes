@@ -37,9 +37,7 @@ def relative_test_path(item: object, rootpath: Path) -> str:
         return item_path.as_posix()
 
 
-def lane_for_item(
-    item: object, rootpath: Path, lane_config: LaneConfig
-) -> LaneSpec:
+def lane_for_item(item: object, rootpath: Path, lane_config: LaneConfig) -> LaneSpec:
     """Return the lane that owns this test item.
 
     Resolution order:
@@ -85,7 +83,9 @@ def _classifier_matches_path(spec: LaneSpec, relative_path: str) -> bool:
     if relative_path in spec.classifier_paths:
         return True
 
-    if spec.classifier_path_suffix and relative_path.endswith(spec.classifier_path_suffix):
+    if spec.classifier_path_suffix and relative_path.endswith(
+        spec.classifier_path_suffix
+    ):
         return True
 
     for prefix in spec.classifier_path_prefixes:
@@ -132,9 +132,7 @@ def build_lane_commands(
     return commands
 
 
-def other_lane_ignores(
-    excluded_spec: LaneSpec, lane_config: LaneConfig
-) -> list[str]:
+def other_lane_ignores(excluded_spec: LaneSpec, lane_config: LaneConfig) -> list[str]:
     seen: set[str] = set()
     ordered: list[str] = []
     for spec in lane_config.lanes:

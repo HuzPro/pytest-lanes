@@ -12,10 +12,7 @@ from pytest_lanes.lanes import LaneCommand, build_lane_commands
 from tests.test_lane_assignment import _example_lane_config
 
 
-_FBV_NODEID = (
-    "test_full_build_verification.py::"
-    "test_build_produces_windows_executable"
-)
+_FBV_NODEID = "test_full_build_verification.py::test_build_produces_windows_executable"
 
 
 def _argv_of(commands: list[LaneCommand], lane_name: str) -> tuple[str, ...]:
@@ -24,7 +21,9 @@ def _argv_of(commands: list[LaneCommand], lane_name: str) -> tuple[str, ...]:
             args = command.args
             assert isinstance(args, tuple)
             return args
-    raise AssertionError(f"Lane '{lane_name}' not found in commands: {[c.name for c in commands]}")
+    raise AssertionError(
+        f"Lane '{lane_name}' not found in commands: {[c.name for c in commands]}"
+    )
 
 
 def test_standard_mode_emits_five_lane_subprocesses_in_canonical_order() -> None:
@@ -62,7 +61,9 @@ def test_full_mode_inserts_full_build_verification_before_http_adapter() -> None
 
 def test_postgres_lane_argv_includes_subprocess_paths_and_ignores() -> None:
     config = _example_lane_config()
-    commands = build_lane_commands(mode="standard", passthrough_args=("-q",), lane_config=config)
+    commands = build_lane_commands(
+        mode="standard", passthrough_args=("-q",), lane_config=config
+    )
 
     postgres_args = _argv_of(commands, "postgres")
 
@@ -73,7 +74,9 @@ def test_postgres_lane_argv_includes_subprocess_paths_and_ignores() -> None:
 
 def test_full_build_verification_lane_uses_nodeid_argument() -> None:
     config = _example_lane_config()
-    commands = build_lane_commands(mode="full", passthrough_args=("-q",), lane_config=config)
+    commands = build_lane_commands(
+        mode="full", passthrough_args=("-q",), lane_config=config
+    )
 
     fbv_args = _argv_of(commands, "full_build_verification")
 
@@ -82,7 +85,9 @@ def test_full_build_verification_lane_uses_nodeid_argument() -> None:
 
 def test_full_build_verification_lane_carries_env_set_into_command() -> None:
     config = _example_lane_config()
-    commands = build_lane_commands(mode="full", passthrough_args=("-q",), lane_config=config)
+    commands = build_lane_commands(
+        mode="full", passthrough_args=("-q",), lane_config=config
+    )
 
     fbv_command = next(c for c in commands if c.name == "full_build_verification")
 
@@ -91,7 +96,9 @@ def test_full_build_verification_lane_carries_env_set_into_command() -> None:
 
 def test_other_lane_auto_ignores_paths_from_every_other_lane() -> None:
     config = _example_lane_config()
-    commands = build_lane_commands(mode="full", passthrough_args=("-q",), lane_config=config)
+    commands = build_lane_commands(
+        mode="full", passthrough_args=("-q",), lane_config=config
+    )
 
     other_args = _argv_of(commands, "other")
 
@@ -99,14 +106,19 @@ def test_other_lane_auto_ignores_paths_from_every_other_lane() -> None:
     assert "--ignore=backend/postgres/tests/test_sensor_logger.py" in other_args
     assert "--ignore=backend/http_adapter/tests" in other_args
     assert "--ignore=app/tests/test_config_e2e.py" in other_args
-    assert "--ignore=experiments/keyboard-acceptance-testing/acceptance_tests" in other_args
+    assert (
+        "--ignore=experiments/keyboard-acceptance-testing/acceptance_tests"
+        in other_args
+    )
     assert "--ignore=tests/backend_acceptance" in other_args
     assert "--ignore=test_full_build_verification.py" in other_args
 
 
 def test_other_lane_also_carries_explicit_subprocess_ignore_entries() -> None:
     config = _example_lane_config()
-    commands = build_lane_commands(mode="standard", passthrough_args=("-q",), lane_config=config)
+    commands = build_lane_commands(
+        mode="standard", passthrough_args=("-q",), lane_config=config
+    )
 
     other_args = _argv_of(commands, "other")
 
@@ -125,15 +137,17 @@ def test_passthrough_args_precede_lane_specific_args_for_every_lane() -> None:
         assert args[1] == "--tb=long"
 
 
-def test_empty_lane_config_with_no_subprocess_lanes_returns_empty_command_list() -> None:
+def test_empty_lane_config_with_no_subprocess_lanes_returns_empty_command_list() -> (
+    None
+):
     config = LaneConfig(
-        lanes=(
-            LaneSpec(name="marker_only", marker="unit", classifier_fallback=True),
-        ),
+        lanes=(LaneSpec(name="marker_only", marker="unit", classifier_fallback=True),),
         subprocess_order_standard=(),
         subprocess_order_full=(),
     )
 
-    commands = build_lane_commands(mode="standard", passthrough_args=(), lane_config=config)
+    commands = build_lane_commands(
+        mode="standard", passthrough_args=(), lane_config=config
+    )
 
     assert commands == []
