@@ -49,6 +49,7 @@ class LaneResult(TypedDict):
     name: str
     exit_code: int
     duration: float
+    reproduce_lines: list[str]
     failed_tests: list[str]
     collected_count: int
     passed_count: int
@@ -130,7 +131,9 @@ def format_orchestration_summary(
         status = "PASS" if result["exit_code"] == 0 else "FAIL"
         lines.append(f"> {lane_name} : {status} ({result['duration']:.2f}s)")
         if result["exit_code"] != 0:
-            lines.append(f"  reproduce: pytest --lane={result['name']}")
+            first_line, *rest = result["reproduce_lines"]
+            lines.append(f"  reproduce: {first_line}")
+            lines.extend(f"  or: {line}" for line in rest)
 
     lines.append(f"Parallelism ratio: {parallelism_ratio:.2f}x")
 
@@ -165,6 +168,7 @@ def _format_seconds(seconds: float | None) -> str:
 class LaneState:
     name: str
     status: str = LANE_STATUS_PENDING
+    reproduce_lines: tuple[str, ...] = ()
     started_at: float | None = None
     duration: float = 0.0
     exit_code: int | None = None
@@ -187,9 +191,17 @@ class LaneProgressReporter:
         self._lanes: dict[str, LaneState] = {}
         self._expected_durations = dict(expected_durations or {})
 
-    def register_lanes(self, lane_names: list[str]) -> None:
+    def register_lanes(
+        self,
+        lane_names: list[str],
+        reproduce_overrides: Mapping[str, tuple[str, ...]] | None = None,
+    ) -> None:
+        overrides = reproduce_overrides or {}
         self._ordered_names = list(lane_names)
-        self._lanes = {name: LaneState(name=name) for name in lane_names}
+        self._lanes = {
+            name: LaneState(name=name, reproduce_lines=overrides.get(name, ()))
+            for name in lane_names
+        }
 
     def mark_started(self, lane_name: str) -> None:
         lane = self._lanes[lane_name]
@@ -339,6 +351,9 @@ class LaneProgressReporter:
                     "name": lane.name,
                     "exit_code": 0 if lane.exit_code is None else lane.exit_code,
                     "duration": lane.duration,
+                    "reproduce_lines": list(
+                        lane.reproduce_lines or (f"pytest --lane={lane.name}",)
+                    ),
                     "failed_tests": list(lane.failed_tests),
                     "collected_count": lane.collected_count,
                     "passed_count": lane.passed_count,
@@ -490,9 +505,10 @@ class RichLaneDisplay:
             )
             self._console.print(lane_line)
             if not status_is_pass:
-                self._console.print(
-                    f"  [dim]reproduce:[/] pytest --lane={result['name']}"
-                )
+                first_line, *rest = result["reproduce_lines"]
+                self._console.print(f"  [dim]reproduce:[/] {first_line}")
+                for line in rest:
+                    self._console.print(f"  [dim]or:[/] {line}")
 
     def _print_failed_tests_section(self, failed_lines: list[str]) -> None:
         if not failed_lines:

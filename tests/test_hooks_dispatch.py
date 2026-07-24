@@ -33,6 +33,7 @@ class _FakeConfig:
         lane_defs: list[str] | None = None,
         lanes_auto: bool = False,
         suggest: bool = False,
+        no_shard: bool = False,
     ) -> None:
         self.rootpath = rootpath
         self._full = full
@@ -42,6 +43,7 @@ class _FakeConfig:
         self._lane_defs = lane_defs
         self._lanes_auto = lanes_auto
         self._suggest = suggest
+        self._no_shard = no_shard
         self.invocation_params = type("InvocationParams", (), {"args": invocation_args})
 
     def getoption(self, option_name: str) -> object:
@@ -59,6 +61,8 @@ class _FakeConfig:
             return self._lanes_auto
         if option_name == "--lanes-suggest":
             return self._suggest
+        if option_name == "--lanes-no-shard":
+            return self._no_shard
         return False
 
 
@@ -342,6 +346,102 @@ def test_lanes_suggest_appends_split_advice_when_recorded_data_exists(
     assert "db_tests/test_a.py" in out
 
 
+def _seeded_divisible_project(tmp_path: Path):
+    """A rootpath with a divisible lane, recorded data, and real files."""
+    from pytest_lanes.config import LaneConfig, LaneSpec
+    from pytest_lanes.durations import LaneRecord, duration_store_for_rootdir
+
+    db_dir = tmp_path / "db"
+    db_dir.mkdir()
+    for name in ("test_a.py", "test_b.py", "test_c.py", "test_d.py"):
+        (db_dir / name).write_text("def test_ok():\n    assert True\n", "utf-8")
+
+    lane_config = LaneConfig(
+        lanes=(
+            LaneSpec(
+                name="postgres",
+                marker="postgres_integration",
+                classifier_path_prefixes=("db/",),
+                subprocess_paths=("db",),
+                divisible=True,
+            ),
+            LaneSpec(
+                name="other",
+                marker="unit",
+                classifier_fallback=True,
+                subprocess_ignore_other_lanes=True,
+                tolerate_no_tests=True,
+            ),
+        ),
+        subprocess_order_standard=("postgres", "other"),
+    )
+    duration_store_for_rootdir(tmp_path).record(
+        {
+            "postgres": LaneRecord(
+                total=30.0,
+                startup=2.0,
+                collect=1.0,
+                files=(
+                    ("db/test_a.py", 7.0),
+                    ("db/test_b.py", 7.0),
+                    ("db/test_c.py", 7.0),
+                    ("db/test_d.py", 6.0),
+                ),
+            ),
+            "other": LaneRecord(total=4.0),
+        }
+    )
+    return lane_config
+
+
+def test_divisible_lane_with_recorded_data_dispatches_shards(
+    tmp_path: Path, capsys
+) -> None:
+    lane_config = _seeded_divisible_project(tmp_path)
+    config = _FakeConfig(rootpath=tmp_path, invocation_args=(".",))
+
+    with (
+        _without_child_env_var(),
+        patch.object(hooks, "run_lane_commands", return_value=0) as mock_run,
+        patch.object(hooks, "_load_lane_config_for", return_value=lane_config),
+        patch.object(hooks, "detected_cpu_count", return_value=4),
+    ):
+        result = hooks.pytest_cmdline_main(config)
+
+    assert result == 0
+    dispatched = mock_run.call_args.args[0]
+    assert [command.name for command in dispatched] == [
+        "postgres~1of2",
+        "postgres~2of2",
+        "other",
+    ]
+    assert mock_run.call_args.kwargs["shard_parents"] == {
+        "postgres~1of2": "postgres",
+        "postgres~2of2": "postgres",
+    }
+    assert "postgres~1of2" in mock_run.call_args.kwargs["reproduce_overrides"]
+    assert "sharded postgres into 2" in capsys.readouterr().out
+    assert (
+        tmp_path / ".pytest_cache" / "v" / "pytest-lanes" / "shard_plan.json"
+    ).exists()
+
+
+def test_lanes_no_shard_flag_disables_planning(tmp_path: Path) -> None:
+    lane_config = _seeded_divisible_project(tmp_path)
+    config = _FakeConfig(rootpath=tmp_path, invocation_args=(".",), no_shard=True)
+
+    with (
+        _without_child_env_var(),
+        patch.object(hooks, "run_lane_commands", return_value=0) as mock_run,
+        patch.object(hooks, "_load_lane_config_for", return_value=lane_config),
+        patch.object(hooks, "detected_cpu_count", return_value=4),
+    ):
+        hooks.pytest_cmdline_main(config)
+
+    dispatched = mock_run.call_args.args[0]
+    assert [command.name for command in dispatched] == ["postgres", "other"]
+
+
 def test_lanes_explain_prints_classification_for_collected_items(
     capsys, monkeypatch
 ) -> None:
@@ -362,6 +462,31 @@ def test_lanes_explain_prints_classification_for_collected_items(
         "backend/http_adapter/tests/test_routes.py::test_get -> http_adapter "
         "(classifier_path_prefixes: backend/http_adapter/tests/)"
     ) in out
+
+
+def test_lanes_explain_footer_shows_divisibility_and_persisted_plan(
+    tmp_path: Path, capsys, monkeypatch
+) -> None:
+    from pytest_lanes.sharding import persist_first_shard, shard_plan_path_for_rootdir
+
+    lane_config = _seeded_divisible_project(tmp_path)
+    persist_first_shard(
+        shard_plan_path_for_rootdir(tmp_path),
+        "postgres",
+        ("db/test_a.py", "db/test_b.py"),
+    )
+    monkeypatch.setattr(hooks, "_lane_config", lane_config)
+    monkeypatch.setattr(hooks, "_rootpath", tmp_path)
+    session = SimpleNamespace(
+        config=_FakeConfig(rootpath=tmp_path, explain=True), items=[]
+    )
+
+    hooks.pytest_collection_finish(session)
+
+    out = capsys.readouterr().out
+    assert "Divisible lanes: postgres" in out
+    assert "Persisted shard plan: postgres" in out
+    assert "db/test_a.py" in out
 
 
 def test_lanes_explain_without_lane_config_raises_usage_error(monkeypatch) -> None:

@@ -345,6 +345,77 @@ lane_numprocesses = 0
         load_lane_config(ini)
 
 
+def test_loader_parses_divisible_files_and_shard_min_saving(tmp_path: Path) -> None:
+    ini = _write_ini(
+        tmp_path,
+        """
+[pytest]
+markers =
+\tunit: unit tests
+
+[pytest-lanes]
+lanes = other
+shard_min_saving = 8.5
+
+[pytest-lanes:other]
+marker = unit
+divisible = files
+""",
+    )
+
+    config = load_lane_config(ini)
+
+    lane = config.lane_by_name("other")
+    assert lane is not None
+    assert lane.divisible is True
+    assert config.shard_min_saving == 8.5
+
+
+def test_loader_defaults_shard_min_saving_and_divisible_off(tmp_path: Path) -> None:
+    ini = _write_ini(
+        tmp_path,
+        """
+[pytest]
+markers =
+\tunit: unit tests
+
+[pytest-lanes]
+lanes = other
+
+[pytest-lanes:other]
+marker = unit
+""",
+    )
+
+    config = load_lane_config(ini)
+
+    lane = config.lane_by_name("other")
+    assert lane is not None
+    assert lane.divisible is False
+    assert config.shard_min_saving == 5.0
+
+
+def test_loader_rejects_divisible_values_other_than_files(tmp_path: Path) -> None:
+    ini = _write_ini(
+        tmp_path,
+        """
+[pytest]
+markers =
+\tunit: unit tests
+
+[pytest-lanes]
+lanes = other
+
+[pytest-lanes:other]
+marker = unit
+divisible = tests
+""",
+    )
+
+    with pytest.raises(LaneConfigError, match="divisible"):
+        load_lane_config(ini)
+
+
 def test_loader_raises_when_max_workers_is_not_an_integer(tmp_path: Path) -> None:
     ini = _write_ini(
         tmp_path,

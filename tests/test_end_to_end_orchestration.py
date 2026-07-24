@@ -200,6 +200,70 @@ def test_lane_defs_orchestrate_without_any_config_file(tmp_path: Path) -> None:
     assert "FAIL" not in result.stdout
 
 
+_DIVISIBLE_LANE_INI = """\
+[pytest]
+markers =
+\tio: simulated infrastructure-heavy tests
+\tunit: fast unit tests
+
+[pytest-lanes]
+lanes = io other
+subprocess_order_standard = io other
+
+[pytest-lanes:io]
+marker = io
+classifier_path_prefixes = io_tests/
+subprocess_paths = io_tests
+divisible = files
+
+[pytest-lanes:other]
+marker = unit
+classifier_fallback = true
+subprocess_ignore_other_lanes = true
+"""
+
+
+def test_recorded_divisible_lane_shards_in_a_real_run(tmp_path: Path) -> None:
+    from pytest_lanes.durations import LaneRecord, duration_store_for_rootdir
+
+    (tmp_path / "pytest.ini").write_text(_DIVISIBLE_LANE_INI, encoding="utf-8")
+    io_dir = tmp_path / "io_tests"
+    io_dir.mkdir()
+    file_records = []
+    for index in range(4):
+        name = f"test_io_{index}.py"
+        (io_dir / name).write_text(
+            f"def test_io_{index}():\n    assert True\n", encoding="utf-8"
+        )
+        file_records.append((f"io_tests/{name}", 9.5))
+    unit_dir = tmp_path / "unit_tests"
+    unit_dir.mkdir()
+    (unit_dir / "test_unit.py").write_text(
+        "def test_unit_lane_runs():\n    assert True\n", encoding="utf-8"
+    )
+    # Seed recorded durations that make the split clearly profitable; the
+    # tests themselves are instant, so only the plan depends on these.
+    duration_store_for_rootdir(tmp_path).record(
+        {
+            "io": LaneRecord(
+                total=40.0, startup=1.0, collect=1.0, files=tuple(file_records)
+            ),
+            "other": LaneRecord(total=4.0),
+        }
+    )
+
+    result = _run_pytest_in(tmp_path)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "sharded io into 2" in result.stdout
+    assert "io~1of2" in result.stdout
+    assert "io~2of2" in result.stdout
+    assert "FAIL" not in result.stdout
+    assert (
+        tmp_path / ".pytest_cache" / "v" / "pytest-lanes" / "shard_plan.json"
+    ).exists()
+
+
 _XDIST_LANE_INI = """\
 [pytest]
 markers =

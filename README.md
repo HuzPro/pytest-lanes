@@ -184,6 +184,18 @@ It is a starting point from static structure, not an oracle: verify with
 `--lanes-explain` before trusting it, and with fewer than two test-bearing
 subdirectories it says so instead of guessing.
 
+Once recorded per-file data exists, the suggestion also appends advice to
+split the longest lane into two declared lanes — balanced contiguous
+halves with projected seconds, shown only when half the lane's test time
+still clears the fixed cost each new lane re-pays every run:
+
+```ini
+# consider splitting lane 'postgres' (33.8s) into two declared lanes:
+#   postgres_a: test_a.py test_b.py  (projected ~17.1s)
+#   postgres_b: test_c.py test_d.py  (projected ~16.4s)
+# note: each new lane re-pays its fixed cost (startup + collect) per run.
+```
+
 ### Declaring lanes in INI
 
 For durable, marker-aware lanes, declare them in `pytest.ini` (or
@@ -247,6 +259,7 @@ The `[pytest-lanes]` index section:
 | `subprocess_order_standard` | Lane names that produce a subprocess in `pytest .` (default) mode, in launch order. |
 | `subprocess_order_full` | Lane names that produce a subprocess in `pytest . --lanes-full` mode. Lanes here but not in `subprocess_order_standard` are "optional" (e.g. a slow build-verification lane). |
 | `max_workers` | Maximum lanes running concurrently; default: CPU count. Overridden by `--lanes-max-workers`. |
+| `shard_min_saving` | Minimum projected makespan improvement, in seconds, before a divisible lane is split into two shards; default 5. See [Sharding](#sharding-splitting-a-slow-lane). |
 
 Every `[pytest-lanes:<name>]` section accepts:
 
@@ -263,6 +276,8 @@ Every `[pytest-lanes:<name>]` section accepts:
 | `subprocess_ignore` | Paths emitted as `--ignore=<path>` to the subprocess. |
 | `subprocess_ignore_other_lanes` | If `true`, every other lane's paths are added to this lane's `--ignore=` list. The fallback lane uses this to "run everything not in another lane." |
 | `subprocess_env_set` | Whitespace-separated `KEY=VALUE` entries injected into the subprocess env *and* applied per-test in single-process mode. |
+| `lane_numprocesses` | If `> 1`, run this lane's subprocess under pytest-xdist (`-n N --dist loadfile`). For homogeneous lanes whose environment is cheap to duplicate; requires pytest-xdist. Reintroduces per-worker environment duplication *inside* this lane. See [Sharding](#sharding-splitting-a-slow-lane). |
+| `divisible` | Set to `files` to opt this lane into sharding — asserting its files are mutually independent and its environment tolerates a duplicate running alongside it. See [Sharding](#sharding-splitting-a-slow-lane). |
 
 ### Adding a new lane
 
@@ -297,8 +312,11 @@ pytest .
 ```
 
 Those recorded durations persist to
-`.pytest_cache/v/pytest-lanes/lane_durations.json` between runs; deleting
-that file resets scheduling to declared order.
+`.pytest_cache/v/pytest-lanes/lane_durations.json` between runs — each
+lane's record now holds per-file test times plus measured `startup`
+(collection end to first test, which captures container/fixture spin-up)
+and `collect` — and deleting that file resets scheduling to declared
+order.
 
 Child processes detect the parent via `PYTEST_LANES_CHILD=1` and run as plain
 pytest. That is the whole trick: each lane gets a clean interpreter, its own
@@ -344,7 +362,9 @@ multi-worker access.
 **Poor fit** — thousands of homogeneous, independent, CPU-bound unit tests
 with no shared infrastructure. That is exactly what `pytest-xdist` is for.
 The two are complementary: lanes for environment isolation, xdist for
-test-level spreading within an environment.
+test-level spreading within an environment — and the built-in
+`lane_numprocesses` key does exactly that inside a single homogeneous
+lane (see [Sharding: splitting a slow lane](#sharding-splitting-a-slow-lane)).
 
 ### Prior art
 
@@ -377,9 +397,106 @@ pay off there. And `os.cpu_count()` (the `max_workers` default) reports
 *logical* cores; the honest guideline is physical cores, so on
 SMT/hyper-threaded machines consider setting `max_workers` lower.
 
+## Sharding: splitting a slow lane
+
+A single slow lane bounds the wall-clock. If that lane's files are
+mutually independent and its environment can run duplicated, pytest-lanes
+can split the lane into two shards that run as separate subprocesses — a
+second copy of the environment bought for a shorter critical path.
+
+Sharding is opt-in per lane, because the split is only safe under two
+assertions you make by declaring it:
+
+```ini
+[pytest-lanes:postgres]
+marker = postgres_integration
+classifier_path_prefixes = tests/integration/
+divisible = files
+```
+
+`divisible = files` asserts (1) the lane's files are mutually independent
+— no ordering or cross-file shared state — and (2) the environment
+tolerates a duplicate running alongside it. A lane bound to a fixed port
+or a single-instance daemon must **not** opt in: a second shard starts a
+second copy and the two collide. Splits are always at file granularity and
+never reorder within a file, so the "only the concurrency you declared"
+property holds — a shard is just a subset of the lane's files in their
+normal order.
+
+**The plan is static, computed before launch.** Sharding never fires on
+the first run — no recorded data, no split. Once durations exist, the
+planner replays the real scheduler — bounded worker pool, longest-first —
+twice: once with every lane whole, once with a 2-way contiguous split of
+the single longest divisible lane. It keeps the split only when the
+projected makespan improves by at least `shard_min_saving` (default 5s),
+counting each shard re-paying its measured startup + collect. One lane is
+considered per run.
+
+The cut is deterministic and sticky: same inputs, same plan. It persists
+to `.pytest_cache/v/pytest-lanes/shard_plan.json` and is re-cut — loudly —
+only when recorded durations drift past 20% imbalance. Shard 1 runs an
+explicit file list; shard 2 runs the lane minus those files (an
+ignore-list), so a file added since the plan was recorded always runs, and
+shard 2 tolerates collecting nothing.
+
+A sharded run prints a receipt and splits the lane's live row in two:
+
+```
+pytest-lanes: sharded postgres into 2: projected 17.1s + 16.4s, makespan gain 13.0s >= 5.0s
+
+> postgres~1of2 : PASS (17.24s)
+> postgres~2of2 : PASS (16.51s)
+```
+
+Shard measurements merge back into the parent lane's record, so scheduling
+and future plans still see `postgres` as one lane. A failed shard prints
+two reproduce lines — the whole lane, and the shard's exact files:
+
+```
+reproduce: pytest --lane=postgres
+    or: pytest tests/integration/test_a.py tests/integration/test_b.py
+```
+
+`--lanes-no-shard` disables planning for a run; the `--lanes-explain`
+footer lists the divisible lanes and the persisted plan.
+
+**The honest ceiling.** Splitting the longest lane cannot help more than
+the runner-up lets it. For a longest lane of duration `D1 = E + T` (fixed
+environment cost `E` plus test time `T`) and a second-longest lane `D2`, a
+single 2-way split saves at most
+
+    min(T / 2, D1 - D2)
+
+The `T/2` term is the best case of halving the test work; the `D1 - D2`
+term is the wall the next-longest lane now sets. On a balanced suite
+`D1 - D2` is small and sharding alone is nearly worthless — shrink the
+second-longest lane first, then sharding the expensive lane pays.
+
+### In-lane xdist (`lane_numprocesses`)
+
+For a lane that is homogeneous and cheap to duplicate — many independent
+files, a fast or shareable environment — `lane_numprocesses = N` runs that
+lane's own subprocess under pytest-xdist (`-n N --dist loadfile`). It is
+the built-in way to spread tests across workers *within a single
+environment*: lanes give you environment isolation, this gives you
+test-level parallelism inside one lane. It requires pytest-xdist installed
+(a clear usage error otherwise). The honest trade is that inside that lane
+xdist's costs come back — each worker duplicates the lane's per-worker
+environment, and process-global state must be concurrency-safe across the
+lane's own files — which is exactly the opt-in you make by setting the key.
+
+The two features compose. `lane_numprocesses` on a cheap, fat lane is
+often the cleanest way to shrink the second-longest lane, which is what
+lifts the `D1 - D2` ceiling above and lets sharding the expensive lane
+cash in its `T/2`.
+
 ## Limitations
 
-- No in-lane parallelism yet: a single slow lane bounds the wall-clock.
+- Wall-clock is bounded by the slowest shard/worker-set, not the slowest
+  test. In-lane parallelism exists but is opt-in per lane:
+  `lane_numprocesses` spreads a lane across xdist workers, and
+  `divisible = files` lets the planner shard a slow lane. A lane that opts
+  into neither runs whole and bounds the run if it is the longest.
 - Max parallelism is `min(subprocess lane count, max_workers)`; lanes
   beyond that queue and wait for a free slot.
 - Queued lanes launch longest-first from recorded durations; the first run
@@ -403,18 +520,21 @@ SMT/hyper-threaded machines consider setting `max_workers` lower.
 
 ## Roadmap
 
-Details and sequencing in [ROADMAP.md](ROADMAP.md). v0.2 shipped all of
-the bounded worker pool, the trust and debugging tools (`--lanes-explain`,
-a live ETA, and reproduce hints), zero-config lanes (`--lane-def` and
+Details and sequencing in [ROADMAP.md](ROADMAP.md). v0.2 shipped the
+bounded worker pool, the trust and debugging tools (`--lanes-explain`, a
+live ETA, and reproduce hints), zero-config lanes (`--lane-def` and
 `--lanes-auto`, no config file required), duration-aware scheduling
 (recorded per-lane wall times drive longest-first launch and real ETAs),
 and `--lanes-suggest` — a static scan that prints a proposed
 `[pytest-lanes]` config from your directory layout and conftests, the
-differentiator no other tool offers.
+differentiator no other tool offers. Closing out the performance
+milestone, it also shipped per-file run measurement, in-lane xdist
+(`lane_numprocesses`), `--lanes-suggest` split advice, and
+statically-planned [lane sharding](#sharding-splitting-a-slow-lane).
 
-The remaining direction is in-lane parallelism and load balancing: lane
-sharding onto idle workers, `pytest-xdist` inside a homogeneous lane, and
-`pyproject.toml` configuration.
+The remaining direction is `pyproject.toml` (`[tool.pytest-lanes]`)
+configuration, per-lane OS gating (`requires_os`), and release-time
+discoverability work.
 
 ## Development
 

@@ -104,28 +104,47 @@ pulls which session-scoped fixture) is out of scope by design: the static
 scan is a starting point, not an oracle. Output is ASCII-only for legacy
 Windows consoles.
 
-## Later — lane sharding (load balancing)
+### Also in v0.2 — lane sharding & in-lane xdist
 
-An opt-in on top of the duration cache:
+The performance milestone shipped, resolving the design debate this
+section used to hold. Two opt-in features let a single lane stop bounding
+the run, both built on the per-file duration data (durations v2) recorded
+this release.
 
-- **Lane sharding (load balancing)** — when a worker goes idle and a
-  divisible lane still has queued work, move file-sized shards of it onto
-  the idle worker. The move only pays when
-  `remaining lane time > environment spin-up cost + collection cost`, so
-  the balancer must price each lane's fixed costs (a Postgres container
-  is ~5-7s; the cache provides the numbers).
+- **Lane sharding** — a lane that declares `divisible = files` may be
+  split into two shards that run as separate subprocesses. The plan is
+  static, computed before launch: the planner replays the real scheduler
+  (bounded pool, longest-first) with recorded durations, once with every
+  lane whole and once with a 2-way contiguous split of the single longest
+  divisible lane, and keeps the split only when projected makespan
+  improves by at least `shard_min_saving` (default 5s) after each shard
+  re-pays its measured startup + collect. Scope is deliberately narrow:
+  K=2, one lane per run, static-only (no live migration onto idle
+  workers), and never on the first run — no recorded data, no split. The
+  cut is deterministic, persisted to `shard_plan.json`, and re-cut (loudly)
+  only when durations drift past 20% imbalance.
 
-  **Correctness constraint (hard requirement):** sharding is opt-in per
-  lane (`divisible = files`). Splitting a lane redistributes execution
-  order across processes — exactly the failure mode measured in the
-  README's `loadgroup` row, where per-test grouping produced 2–16
-  scheduling-dependent failures per run. File granularity plus explicit
-  opt-in keeps the "the only concurrency is the concurrency you
-  declared" property intact.
+  **Correctness constraint (held):** sharding is opt-in per lane and
+  always at file granularity, so redistributing files across shards never
+  reorders within a file and keeps the "the only concurrency is the
+  concurrency you declared" property intact — the failure mode measured in
+  the README's `loadgroup` row.
+
+  **The honest ceiling:** for a longest lane `D1 = E + T` (fixed
+  environment cost plus test time) and a second-longest lane `D2`, a
+  single 2-way split saves at most `min(T/2, D1 - D2)`. On a balanced
+  suite the gap term makes sharding alone nearly worthless — shrink the
+  runner-up first (often via `lane_numprocesses`), then the split pays.
+
+- **In-lane xdist (`lane_numprocesses`)** — a homogeneous lane can opt in
+  to `-n N --dist loadfile` inside its own subprocess, the built-in way to
+  spread tests within one environment. The trade is explicit: per-worker
+  environment duplication and concurrency-safety obligations return inside
+  that lane. Composes with sharding — lowering the runner-up is what makes
+  splitting the longest lane worthwhile.
 
 ## Also planned
 
-- Layer `pytest-xdist` *inside* a homogeneous lane (`lane_numprocesses`).
 - `pyproject.toml` (`[tool.pytest-lanes]`) configuration — deferred until
   the config schema stops churning.
 - Per-lane OS gating (`requires_os`).

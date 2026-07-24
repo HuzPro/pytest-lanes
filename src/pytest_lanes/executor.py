@@ -20,6 +20,7 @@ import sys
 import tempfile
 import threading
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -57,13 +58,18 @@ def run_lane_commands(
     commands: list[LaneCommand],
     max_workers: int,
     duration_store: DurationStore | None = None,
+    shard_parents: Mapping[str, str] | None = None,
+    reproduce_overrides: Mapping[str, tuple[str, ...]] | None = None,
 ) -> int:
     start_wall = time.perf_counter()
     show_lane_output = os.environ.get(SHOW_LANE_OUTPUT_ENV) == "1"
     store = duration_store if duration_store is not None else InMemoryDurationStore()
     recorded_durations = store.recorded_durations()
     reporter = LaneProgressReporter(expected_durations=recorded_durations)
-    reporter.register_lanes([command.name for command in commands])
+    reporter.register_lanes(
+        [command.name for command in commands],
+        reproduce_overrides=reproduce_overrides,
+    )
     context = _RunContext(
         lane_output_queue=queue.Queue(),
         reporter=reporter,
@@ -91,7 +97,9 @@ def run_lane_commands(
     wall_seconds = time.perf_counter() - start_wall
     context.presenter.print_summary(reporter, wall_seconds=wall_seconds)
 
-    _record_run_durations(reporter, store, context.durations_dir)
+    _record_run_durations(
+        reporter, store, context.durations_dir, shard_parents=shard_parents
+    )
     shutil.rmtree(context.durations_dir, ignore_errors=True)
 
     exit_codes = [result["exit_code"] for result in reporter.lane_results()]
@@ -102,20 +110,58 @@ def _record_run_durations(
     reporter: LaneProgressReporter,
     store: DurationStore,
     durations_dir: Path,
+    shard_parents: Mapping[str, str] | None = None,
 ) -> None:
+    parents = dict(shard_parents or {})
     finished: dict[str, LaneRecord] = {}
+    shard_measurements: dict[str, list[dict]] = {}
+
     for result in reporter.lane_results():
         if result["duration"] <= 0:
             continue
         measured = _read_child_measurements(durations_dir / f"{result['name']}.json")
+        parent = parents.get(result["name"])
+        if parent is not None:
+            shard_measurements.setdefault(parent, []).append(measured)
+            continue
         finished[result["name"]] = LaneRecord(
             total=result["duration"],
             startup=float(measured.get("startup", 0.0)),
             collect=float(measured.get("collect", 0.0)),
             files=tuple(sorted(dict(measured.get("files", {})).items())),
         )
+
+    for parent, measurements in shard_measurements.items():
+        finished[parent] = _merged_parent_record(measurements)
+
     if finished:
         store.record(finished)
+
+
+def _merged_parent_record(measurements: list[dict]) -> LaneRecord:
+    """Fold shard measurements into one whole-lane record.
+
+    ``total`` approximates the unsharded serial run — fixed costs paid once
+    plus every file — which is what the next run's plan simulation needs.
+    """
+    files: dict[str, float] = {}
+    for measured in measurements:
+        files.update(dict(measured.get("files", {})))
+    startup = max(
+        (float(measured.get("startup", 0.0)) for measured in measurements),
+        default=0.0,
+    )
+    collect = max(
+        (float(measured.get("collect", 0.0)) for measured in measurements),
+        default=0.0,
+    )
+    files_seconds = sum(files.values())
+    return LaneRecord(
+        total=startup + collect + files_seconds,
+        startup=startup,
+        collect=collect,
+        files=tuple(sorted(files.items())),
+    )
 
 
 def _read_child_measurements(path: Path) -> dict:

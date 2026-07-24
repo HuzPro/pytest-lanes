@@ -54,6 +54,12 @@ from pytest_lanes.lanes import build_lane_commands, explain_lane_for_item, lane_
 from pytest_lanes.mode import orchestration_mode
 from pytest_lanes.recording import ChildRunRecorder
 from pytest_lanes.scheduler import detected_cpu_count, resolve_max_workers
+from pytest_lanes.sharding import (
+    load_persisted_plan,
+    persist_first_shard,
+    plan_shards,
+    shard_plan_path_for_rootdir,
+)
 from pytest_lanes.suggest import (
     format_lane_suggestion,
     format_split_advice,
@@ -158,6 +164,12 @@ def pytest_addoption(parser: pytest.Parser) -> None:
             "INI config to review, then exit without running any tests."
         ),
     )
+    group.addoption(
+        "--lanes-no-shard",
+        action="store_true",
+        default=False,
+        help="Disable shard planning for this run; lanes run whole.",
+    )
 
 
 def pytest_cmdline_main(config: pytest.Config) -> int | None:
@@ -189,22 +201,49 @@ def pytest_cmdline_main(config: pytest.Config) -> int | None:
 
     args = invocation_args(config)
     passthrough = passthrough_args_for_lanes(args)
-    commands = build_lane_commands(
-        mode=mode, passthrough_args=passthrough, lane_config=lane_config
-    )
-    if not commands:
-        # Lanes are declared but no subprocess order list is: there is nothing
-        # to fan out, so let pytest run normally instead of exiting early.
-        return None
     max_workers = resolve_max_workers(
         cli_value=config.getoption("--lanes-max-workers"),
         config_value=lane_config.max_workers,
         detected=detected_cpu_count(),
     )
-    return run_lane_commands(
-        commands,
+    rootpath = Path(str(config.rootpath))
+    duration_store = duration_store_for_rootdir(rootpath)
+
+    if config.getoption("--lanes-no-shard"):
+        commands = build_lane_commands(
+            mode=mode, passthrough_args=passthrough, lane_config=lane_config
+        )
+        if not commands:
+            return None
+        return run_lane_commands(
+            commands, max_workers=max_workers, duration_store=duration_store
+        )
+
+    plan_path = shard_plan_path_for_rootdir(rootpath)
+    plan = plan_shards(
+        mode=mode,
+        passthrough_args=passthrough,
+        lane_config=lane_config,
+        records=duration_store.recorded_lane_records(),
         max_workers=max_workers,
-        duration_store=duration_store_for_rootdir(Path(str(config.rootpath))),
+        file_exists=lambda relative: (rootpath / relative).exists(),
+        persisted_plan=load_persisted_plan(plan_path),
+    )
+    if not plan.commands:
+        # Lanes are declared but no subprocess order list is: there is nothing
+        # to fan out, so let pytest run normally instead of exiting early.
+        return None
+    for note in plan.notes:
+        print(f"pytest-lanes: {note}")
+    if plan.sharded_lane:
+        persist_first_shard(plan_path, plan.sharded_lane, plan.first_shard_files)
+
+    return run_lane_commands(
+        list(plan.commands),
+        max_workers=max_workers,
+        duration_store=duration_store,
+        shard_parents=dict(plan.shard_parents) or None,
+        reproduce_overrides=dict(plan.reproduce_lines) or None,
     )
 
 
@@ -302,6 +341,22 @@ def pytest_collection_finish(session: pytest.Session) -> None:
         for item in session.items
     ]
     print(format_lane_explanation(entries))
+    _print_divisibility_footer(_lane_config, _rootpath)
+
+
+def _print_divisibility_footer(lane_config: LaneConfig, rootpath: Path) -> None:
+    divisible_names = [spec.name for spec in lane_config.lanes if spec.divisible]
+    if not divisible_names:
+        return
+    print(f"Divisible lanes: {', '.join(divisible_names)}")
+    persisted = load_persisted_plan(shard_plan_path_for_rootdir(rootpath))
+    if persisted is None:
+        return
+    lane_name, first_shard_files = persisted
+    print(
+        f"Persisted shard plan: {lane_name} -> shard 1: "
+        f"{' '.join(first_shard_files)}; shard 2: remainder"
+    )
 
 
 @pytest.hookimpl(tryfirst=True)

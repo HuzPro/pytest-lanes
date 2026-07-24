@@ -22,6 +22,7 @@ from pytest_lanes.adhoc import (
     _is_lane_candidate,
 )
 from pytest_lanes.durations import LaneRecord
+from pytest_lanes.sharding import contiguous_halves
 
 _INFRASTRUCTURE_IMPORT_ROOTS = frozenset(
     {
@@ -207,7 +208,7 @@ def format_split_advice(records: Mapping[str, LaneRecord]) -> str:
     if tests_seconds / 2 <= fixed_seconds:
         return ""
 
-    first_half, second_half = _contiguous_halves(record.files)
+    first_half, second_half = contiguous_halves(record.files)
     lines = [
         "Split advice (from recorded durations)",
         (
@@ -236,23 +237,6 @@ def _longest_splittable_lane(
     if not splittable:
         return None
     return max(splittable, key=lambda entry: entry[1].total)
-
-
-def _contiguous_halves(
-    files: tuple[tuple[str, float], ...],
-) -> tuple[tuple[tuple[str, float], ...], tuple[tuple[str, float], ...]]:
-    """Cut the file list at the point that best balances the two halves."""
-    total = sum(seconds for _, seconds in files)
-    best_cut = 1
-    best_imbalance = float("inf")
-    running = 0.0
-    for index, (_, seconds) in enumerate(files[:-1], start=1):
-        running += seconds
-        imbalance = abs(running - (total - running))
-        if imbalance < best_imbalance:
-            best_imbalance = imbalance
-            best_cut = index
-    return files[:best_cut], files[best_cut:]
 
 
 def _half_seconds(half: tuple[tuple[str, float], ...]) -> float:

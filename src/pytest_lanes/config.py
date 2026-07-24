@@ -43,6 +43,10 @@ class LaneSpec:
     subprocess_env_set: tuple[tuple[str, str], ...] = ()
     tolerate_no_tests: bool = False
     lane_numprocesses: int | None = None
+    divisible: bool = False
+
+
+DEFAULT_SHARD_MIN_SAVING_SECONDS = 5.0
 
 
 @dataclass(frozen=True)
@@ -51,6 +55,7 @@ class LaneConfig:
     subprocess_order_standard: tuple[str, ...] = ()
     subprocess_order_full: tuple[str, ...] = ()
     max_workers: int | None = None
+    shard_min_saving: float = DEFAULT_SHARD_MIN_SAVING_SECONDS
 
     def lane_by_name(self, name: str) -> LaneSpec | None:
         for spec in self.lanes:
@@ -116,7 +121,20 @@ def load_lane_config(ini_path: Path) -> LaneConfig:
         subprocess_order_standard=subprocess_order_standard,
         subprocess_order_full=subprocess_order_full,
         max_workers=_parse_max_workers(parser),
+        shard_min_saving=_parse_shard_min_saving(parser),
     )
+
+
+def _parse_shard_min_saving(parser: configparser.ConfigParser) -> float:
+    text = parser.get("pytest-lanes", "shard_min_saving", fallback="").strip()
+    if not text:
+        return DEFAULT_SHARD_MIN_SAVING_SECONDS
+    try:
+        return float(text)
+    except ValueError as error:
+        raise LaneConfigError(
+            f"[pytest-lanes].shard_min_saving must be a number (got '{text}')."
+        ) from error
 
 
 def _parse_max_workers(parser: configparser.ConfigParser) -> int | None:
@@ -221,7 +239,23 @@ def _parse_lane(
         ),
         subprocess_env_set=env_set_pairs,
         lane_numprocesses=_parse_lane_numprocesses(parser, section, name),
+        divisible=_parse_divisible(parser, section, name),
     )
+
+
+def _parse_divisible(
+    parser: configparser.ConfigParser, section: str, lane_name: str
+) -> bool:
+    text = parser.get(section, "divisible", fallback="").strip()
+    if not text:
+        return False
+    if text != "files":
+        raise LaneConfigError(
+            f"Lane '{lane_name}': divisible only supports 'files' (got '{text}'). "
+            "Declaring it asserts the lane's files are mutually independent AND "
+            "its environment can run duplicated."
+        )
+    return True
 
 
 def _parse_lane_numprocesses(

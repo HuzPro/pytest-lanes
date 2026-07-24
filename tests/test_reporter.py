@@ -485,6 +485,27 @@ def test_rich_summary_prints_reproduce_hint_for_failed_lane(monkeypatch) -> None
     assert any("reproduce:" in line and "--lane=postgres" in line for line in printed)
 
 
+def test_reproduce_overrides_print_every_line_for_failed_shards() -> None:
+    reporter = LaneProgressReporter(clock=lambda: 0.0)
+    reporter.register_lanes(
+        ["postgres~1of2"],
+        reproduce_overrides={
+            "postgres~1of2": (
+                "pytest --lane=postgres",
+                "pytest db/test_a.py db/test_b.py",
+            )
+        },
+    )
+    reporter.mark_started("postgres~1of2")
+    reporter.mark_finished("postgres~1of2", exit_code=1)
+
+    summary = reporter.build_summary(wall_seconds=1.0)
+
+    assert "reproduce: pytest --lane=postgres" in summary
+    assert "or: pytest db/test_a.py db/test_b.py" in summary
+    assert "reproduce: pytest --lane=postgres~1of2" not in summary
+
+
 def _reporter_at_half_progress_with_20s_remaining() -> LaneProgressReporter:
     now = {"value": 10.0}
 

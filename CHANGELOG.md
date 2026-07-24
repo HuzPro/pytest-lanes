@@ -2,6 +2,26 @@
 
 ## 0.2.0 — unreleased
 
+- **Lane sharding (opt-in, statically planned).** A lane that declares
+  `divisible = files` — asserting its files are mutually independent AND
+  its environment can run duplicated — may be split into two shards when
+  the plan simulation says it pays. Before launch, the planner replays the
+  real scheduler (bounded pool, longest-first) with recorded durations,
+  once unsharded and once with the candidate 2-way contiguous split of the
+  single longest divisible lane; the split happens only when the projected
+  makespan improves by `shard_min_saving` (default 5s) after each shard
+  re-pays measured startup + collect. Same inputs, same plan, every run:
+  the cut persists to `shard_plan.json` and only re-cuts (loudly) when
+  durations drift beyond 20% imbalance. Shard 1 runs an explicit file
+  list; shard 2 runs the lane minus those files, so files added since
+  recording can never be dropped. Shards print a receipt
+  (`sharded postgres into 2: ...`), appear as `postgres~1of2` rows, merge
+  their measurements back into the parent lane's record, and a failed
+  shard prints both `pytest --lane=<lane>` and its exact file-list
+  command. `--lanes-no-shard` disables planning; no recorded data means
+  no sharding, ever; `--lanes-explain` shows divisibility and the
+  persisted plan.
+
 - **In-lane xdist (`lane_numprocesses`).** A homogeneous lane can opt in
   to spreading its files across xdist workers (`-n K --dist loadfile`
   inside that lane's subprocess only). Requires pytest-xdist (a clear
