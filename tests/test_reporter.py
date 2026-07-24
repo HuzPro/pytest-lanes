@@ -2,11 +2,12 @@ import re
 from typing import Any
 
 import pytest
+
 import pytest_lanes.reporter as lane_reporter
 from pytest_lanes.reporter import (
+    SUMMARY_TITLE,
     LaneConsolePresenter,
     LaneProgressReporter,
-    SUMMARY_TITLE,
     extract_failed_test_lines,
 )
 

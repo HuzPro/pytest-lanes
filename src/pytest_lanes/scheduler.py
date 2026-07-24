@@ -12,7 +12,8 @@ durations exist to draw on.
 from __future__ import annotations
 
 import os
-from typing import Protocol, Sequence
+from collections.abc import Sequence
+from typing import Protocol
 
 import pytest
 

@@ -35,7 +35,7 @@ dependencies = ["pytest>=7.4"]
 [project.optional-dependencies]
 rich = ["rich>=13"]
 test = ["rich>=13"]
-dev = ["ruff", "rich>=13"]
+dev = ["ruff==0.16.*", "rich>=13"]
 
 [project.urls]
 Homepage = "https://github.com/HuzPro/pytest-lanes"

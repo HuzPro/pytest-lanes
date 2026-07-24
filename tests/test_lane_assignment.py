@@ -40,8 +40,10 @@ def _example_lane_config() -> LaneConfig:
                 marker="full_build_verification",
                 classifier_paths=("test_full_build_verification.py",),
                 subprocess_nodeids=(
-                    "test_full_build_verification.py::"
-                    "test_build_produces_windows_executable",
+                    (
+                        "test_full_build_verification.py::"
+                        "test_build_produces_windows_executable"
+                    ),
                 ),
                 subprocess_env_set=(
                     ("BUILD_OUTPUT_DIR", "build/full-build-verification"),

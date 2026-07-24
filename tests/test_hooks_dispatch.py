@@ -13,7 +13,7 @@ from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest_lanes.hooks as hooks
+from pytest_lanes import hooks
 from pytest_lanes.constants import TEST_ORCHESTRATION_CHILD_ENV
 from tests.test_lane_assignment import _example_lane_config
 

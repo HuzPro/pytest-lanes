@@ -45,7 +45,6 @@ from pytest_lanes.lanes import build_lane_commands, lane_for_item
 from pytest_lanes.mode import orchestration_mode
 from pytest_lanes.scheduler import detected_cpu_count, resolve_max_workers
 
-
 ENV_OVERRIDE_ATTR = "_pytest_lanes_env_overrides"
 
 _lane_config: LaneConfig | None = None

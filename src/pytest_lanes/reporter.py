@@ -8,15 +8,15 @@ from __future__ import annotations
 
 import re
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol, TypedDict
-from collections.abc import Callable
 
 try:
+    from rich import box
     from rich.console import Console
     from rich.live import Live
     from rich.table import Table
-    from rich import box
 
     HAS_RICH = True
 except ModuleNotFoundError:  # pragma: no cover - covered when rich is installed

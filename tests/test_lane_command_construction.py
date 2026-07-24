@@ -11,7 +11,6 @@ from pytest_lanes.config import LaneConfig, LaneSpec
 from pytest_lanes.lanes import LaneCommand, build_lane_commands
 from tests.test_lane_assignment import _example_lane_config
 
-
 _FBV_NODEID = "test_full_build_verification.py::test_build_produces_windows_executable"
 
 

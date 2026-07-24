@@ -12,10 +12,9 @@ import os
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest_lanes.hooks as hooks
+from pytest_lanes import hooks
 from pytest_lanes.config import LaneConfig, LaneSpec, load_lane_config_or_none
 from pytest_lanes.constants import TEST_ORCHESTRATION_CHILD_ENV
-
 
 _MINIMAL_LANES_BODY = """
 [pytest]

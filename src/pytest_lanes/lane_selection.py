@@ -9,8 +9,8 @@ them up to real pytest.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
 from pathlib import Path
-from typing import Callable, Iterable
 
 import pytest
 

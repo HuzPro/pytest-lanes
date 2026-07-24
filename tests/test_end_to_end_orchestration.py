@@ -16,7 +16,6 @@ from pathlib import Path
 
 from pytest_lanes.constants import TEST_ORCHESTRATION_CHILD_ENV
 
-
 _PROJECT_INI = """\
 [pytest]
 markers =
@@ -71,6 +70,7 @@ def _run_pytest_in(root: Path) -> subprocess.CompletedProcess[str]:
         text=True,
         encoding="utf-8",
         timeout=300,
+        check=False,
     )
 
 
