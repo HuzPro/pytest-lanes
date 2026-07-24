@@ -32,6 +32,7 @@ class _FakeConfig:
         explain: bool = False,
         lane_defs: list[str] | None = None,
         lanes_auto: bool = False,
+        suggest: bool = False,
     ) -> None:
         self.rootpath = rootpath
         self._full = full
@@ -40,6 +41,7 @@ class _FakeConfig:
         self._explain = explain
         self._lane_defs = lane_defs
         self._lanes_auto = lanes_auto
+        self._suggest = suggest
         self.invocation_params = type("InvocationParams", (), {"args": invocation_args})
 
     def getoption(self, option_name: str) -> object:
@@ -55,6 +57,8 @@ class _FakeConfig:
             return self._lane_defs
         if option_name == "--lanes-auto":
             return self._lanes_auto
+        if option_name == "--lanes-suggest":
+            return self._suggest
         return False
 
 
@@ -233,6 +237,31 @@ def test_lanes_auto_without_usable_partition_prints_notice_and_steps_aside(
     assert result is None
     mock_run.assert_not_called()
     assert "--lanes-auto" in capsys.readouterr().out
+
+
+def test_lanes_suggest_prints_a_reviewable_config_and_runs_nothing(
+    tmp_path: Path, capsys
+) -> None:
+    for directory in ("db_tests", "unit_tests"):
+        (tmp_path / directory).mkdir()
+        (tmp_path / directory / "test_sample.py").write_text(
+            "def test_ok():\n    assert True\n", encoding="utf-8"
+        )
+    config = _FakeConfig(
+        rootpath=tmp_path, invocation_args=(".", "--lanes-suggest"), suggest=True
+    )
+
+    with (
+        _without_child_env_var(),
+        patch.object(hooks, "run_lane_commands") as mock_run,
+    ):
+        result = hooks.pytest_cmdline_main(config)
+
+    assert result == 0
+    mock_run.assert_not_called()
+    out = capsys.readouterr().out
+    assert "[pytest-lanes]" in out
+    assert "[pytest-lanes:db_tests]" in out
 
 
 def test_lanes_explain_prints_classification_for_collected_items(

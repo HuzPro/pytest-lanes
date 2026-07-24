@@ -78,23 +78,31 @@ convention.
   ETA: lanes still queued for a slot contribute their recorded duration to
   the estimated-time-remaining readout.
 
-## v0.3 — `--lanes-suggest` (DX track)
+### Also in v0.2 — `--lanes-suggest`
 
-Static suggestion of a lane config for a suite that has none — the
-differentiator none of the prior-art tools offer. v1 does no execution; it
-reads structure only:
+The plugin can now propose a lane config for a suite that has none — the
+differentiator none of the prior-art tools offer. It executes no test
+code; it reads structure only:
 
-- Partition candidates from the directory layout under the test root(s).
-- An AST scan of `conftest.py` files for session/module-scoped fixtures
-  and for `testcontainers` / `docker` / DB-driver imports, to flag the
-  lanes that carry expensive infrastructure.
-- Existing pytest markers folded in as classification hints.
+- The directory partition — one candidate lane per test-bearing
+  subdirectory, the same rules as `--lanes-auto`.
+- An AST scan of each test directory's `conftest.py` files for
+  session/module/package-scoped fixtures and infrastructure imports
+  (`testcontainers`, `docker`, and the Postgres / MySQL / SQLAlchemy /
+  Redis / Kafka / Mongo / boto3 drivers), used to order the
+  infrastructure-heavy lanes first under a slowest-first heuristic.
 
-Output is a commented `[pytest-lanes]` INI block printed to stdout, framed
-explicitly as a suggestion to read and adjust — then verify with
-`--lanes-explain` before committing it. Resolving the real fixture-request
-graph (which test actually pulls which session-scoped fixture) is out of
-scope for v1: the static scan is a starting point, not an oracle.
+Output is a commented `[pytest-lanes]` INI block on stdout — a
+`[pytest].markers` block, the index section (the fallback `other` lane
+appears in `subprocess_order_standard` only when stray root-level tests
+exist), and one section per lane with a `# detected: ...` note — then
+exits 0 without running tests. It is framed explicitly as a suggestion to
+review and verify with `--lanes-explain`; with fewer than two test-bearing
+subdirectories it prints an honest "no partition found" message instead of
+guessing. Resolving the real fixture-request graph (which test actually
+pulls which session-scoped fixture) is out of scope by design: the static
+scan is a starting point, not an oracle. Output is ASCII-only for legacy
+Windows consoles.
 
 ## Later — lane sharding (load balancing)
 

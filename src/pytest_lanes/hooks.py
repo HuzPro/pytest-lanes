@@ -31,6 +31,7 @@ import pytest
 
 from pytest_lanes.adhoc import resolve_lane_config_or_none
 from pytest_lanes.config import LaneConfig
+from pytest_lanes.constants import TEST_ORCHESTRATION_CHILD_ENV
 from pytest_lanes.durations import duration_store_for_rootdir
 from pytest_lanes.executor import run_lane_commands
 from pytest_lanes.explain import format_lane_explanation
@@ -47,6 +48,7 @@ from pytest_lanes.lane_selection import (
 from pytest_lanes.lanes import build_lane_commands, explain_lane_for_item, lane_for_item
 from pytest_lanes.mode import orchestration_mode
 from pytest_lanes.scheduler import detected_cpu_count, resolve_max_workers
+from pytest_lanes.suggest import format_lane_suggestion, scan_project
 
 ENV_OVERRIDE_ATTR = "_pytest_lanes_env_overrides"
 
@@ -118,9 +120,24 @@ def pytest_addoption(parser: pytest.Parser) -> None:
             "plus a fallback for stray files — no config file needed."
         ),
     )
+    group.addoption(
+        "--lanes-suggest",
+        action="store_true",
+        default=False,
+        help=(
+            "Statically analyze the suite (directory layout, conftest "
+            "fixtures and imports) and print a suggested [pytest-lanes] "
+            "INI config to review, then exit without running any tests."
+        ),
+    )
 
 
 def pytest_cmdline_main(config: pytest.Config) -> int | None:
+    is_child_process = os.environ.get(TEST_ORCHESTRATION_CHILD_ENV) == "1"
+    if config.getoption("--lanes-suggest") and not is_child_process:
+        print(format_lane_suggestion(scan_project(Path(str(config.rootpath)))))
+        return 0
+
     mode = orchestration_mode(config)
     if mode is None:
         return None

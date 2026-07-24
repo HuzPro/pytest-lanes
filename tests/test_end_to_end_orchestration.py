@@ -197,6 +197,21 @@ def test_lane_defs_orchestrate_without_any_config_file(tmp_path: Path) -> None:
     assert "FAIL" not in result.stdout
 
 
+def test_lanes_suggest_prints_reviewable_ini_for_an_unconfigured_project(
+    tmp_path: Path,
+) -> None:
+    _write_test_directories(tmp_path)
+
+    result = _run_pytest_in(tmp_path, extra_args=("--lanes-suggest",))
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "[pytest-lanes:io_tests]" in result.stdout
+    assert "[pytest-lanes:unit_tests]" in result.stdout
+    assert "--lanes-explain" in result.stdout
+    # Only prints the suggestion — no tests execute.
+    assert "Lane Test Summary" not in result.stdout
+
+
 def test_lanes_auto_orchestrates_by_directory_layout(tmp_path: Path) -> None:
     _write_test_directories(tmp_path)
 

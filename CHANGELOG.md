@@ -2,6 +2,21 @@
 
 ## 0.2.0 — unreleased
 
+- **Lane children no longer touch pytest's cache** (`-p no:cacheprovider`
+  in every child argv). Concurrent children racing to create
+  `.pytest_cache` could break sibling collection with a transient
+  `pytest-cache-files-*` directory (observed on Windows CI), and parallel
+  cache writers clobbered `lastfailed` last-writer-wins anyway. Known
+  trade-off: `pytest --lf` does not see failures from lane subprocesses.
+
+- **`--lanes-suggest`.** Statically analyzes an unconfigured suite —
+  directory partition plus an AST scan of each test directory's
+  `conftest.py` for session/module-scoped fixtures and infrastructure
+  imports (testcontainers, docker, DB drivers) — and prints a commented,
+  reviewable `[pytest-lanes]` INI block, infrastructure-heavy lanes
+  ordered first. No user code is executed; the output is framed as a
+  suggestion to verify with `--lanes-explain`, never an oracle.
+
 - **Duration cache and longest-first scheduling.** Each orchestrated run
   records per-lane wall times to
   `.pytest_cache/v/pytest-lanes/lane_durations.json`. When recorded data
