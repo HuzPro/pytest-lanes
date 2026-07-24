@@ -38,9 +38,7 @@ subprocess_ignore_other_lanes = true
 """
 
 
-def _write_demo_project(root: Path, extra_index_lines: str = "") -> None:
-    ini_body = _PROJECT_INI.format(extra_index_lines=extra_index_lines)
-    (root / "pytest.ini").write_text(ini_body, encoding="utf-8")
+def _write_test_directories(root: Path) -> None:
     io_dir = root / "io_tests"
     io_dir.mkdir()
     (io_dir / "test_io.py").write_text(
@@ -51,6 +49,12 @@ def _write_demo_project(root: Path, extra_index_lines: str = "") -> None:
     (unit_dir / "test_unit.py").write_text(
         "def test_unit_lane_runs():\n    assert True\n", encoding="utf-8"
     )
+
+
+def _write_demo_project(root: Path, extra_index_lines: str = "") -> None:
+    ini_body = _PROJECT_INI.format(extra_index_lines=extra_index_lines)
+    (root / "pytest.ini").write_text(ini_body, encoding="utf-8")
+    _write_test_directories(root)
 
 
 def _run_pytest_in(
@@ -158,3 +162,30 @@ def test_lanes_explain_lists_each_test_with_lane_and_rule_without_running(
         "unit_tests/test_unit.py::test_unit_lane_runs -> other (classifier_fallback)"
     ) in result.stdout
     assert "2 tests in 2 lanes" in result.stdout
+
+
+def test_lane_defs_orchestrate_without_any_config_file(tmp_path: Path) -> None:
+    _write_test_directories(tmp_path)
+
+    result = _run_pytest_in(
+        tmp_path,
+        extra_args=("--lane-def", "io=io_tests", "--lane-def", "units=unit_tests"),
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Lane Test Summary" in result.stdout
+    assert "io" in result.stdout
+    assert "units" in result.stdout
+    assert "FAIL" not in result.stdout
+
+
+def test_lanes_auto_orchestrates_by_directory_layout(tmp_path: Path) -> None:
+    _write_test_directories(tmp_path)
+
+    result = _run_pytest_in(tmp_path, extra_args=("--lanes-auto",))
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Lane Test Summary" in result.stdout
+    assert "io_tests" in result.stdout
+    assert "unit_tests" in result.stdout
+    assert "FAIL" not in result.stdout

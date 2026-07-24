@@ -30,12 +30,16 @@ class _FakeConfig:
         invocation_args: tuple[str, ...] = (),
         max_workers: int | None = None,
         explain: bool = False,
+        lane_defs: list[str] | None = None,
+        lanes_auto: bool = False,
     ) -> None:
         self.rootpath = rootpath
         self._full = full
         self._lane = lane
         self._max_workers = max_workers
         self._explain = explain
+        self._lane_defs = lane_defs
+        self._lanes_auto = lanes_auto
         self.invocation_params = type("InvocationParams", (), {"args": invocation_args})
 
     def getoption(self, option_name: str) -> object:
@@ -47,6 +51,10 @@ class _FakeConfig:
             return self._max_workers
         if option_name == "--lanes-explain":
             return self._explain
+        if option_name == "--lane-def":
+            return self._lane_defs
+        if option_name == "--lanes-auto":
+            return self._lanes_auto
         return False
 
 
@@ -187,6 +195,44 @@ def test_ini_max_workers_is_used_when_no_cli_flag_is_passed() -> None:
         hooks.pytest_cmdline_main(config)
 
     assert mock_run.call_args.kwargs["max_workers"] == 4
+
+
+def test_lane_defs_fan_out_without_any_ini_config(tmp_path: Path) -> None:
+    config = _FakeConfig(
+        rootpath=tmp_path,
+        invocation_args=(".", "--lane-def", "db=tests/db"),
+        lane_defs=["db=tests/db"],
+    )
+
+    with (
+        _without_child_env_var(),
+        patch.object(hooks, "run_lane_commands", return_value=0) as mock_run,
+    ):
+        result = hooks.pytest_cmdline_main(config)
+
+    assert result == 0
+    dispatched_commands = mock_run.call_args.args[0]
+    assert [command.name for command in dispatched_commands] == ["db", "other"]
+
+
+def test_lanes_auto_without_usable_partition_prints_notice_and_steps_aside(
+    tmp_path: Path, capsys
+) -> None:
+    config = _FakeConfig(
+        rootpath=tmp_path,
+        invocation_args=(".", "--lanes-auto"),
+        lanes_auto=True,
+    )
+
+    with (
+        _without_child_env_var(),
+        patch.object(hooks, "run_lane_commands") as mock_run,
+    ):
+        result = hooks.pytest_cmdline_main(config)
+
+    assert result is None
+    mock_run.assert_not_called()
+    assert "--lanes-auto" in capsys.readouterr().out
 
 
 def test_lanes_explain_prints_classification_for_collected_items(

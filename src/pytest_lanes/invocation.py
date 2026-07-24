@@ -49,15 +49,9 @@ def has_custom_selection(invocation_args_value: tuple[str, ...]) -> bool:
 
 
 def has_targeted_paths(invocation_args_value: tuple[str, ...]) -> bool:
-    positional_args = [arg for arg in invocation_args_value if is_positional_arg(arg)]
-    if not positional_args:
-        return False
-
-    for arg in positional_args:
-        if arg == ".":
-            continue
-        return True
-
+    for arg in _args_without_lane_def_values(invocation_args_value):
+        if is_positional_arg(arg) and arg != ".":
+            return True
     return False
 
 
@@ -65,8 +59,31 @@ def passthrough_args_for_lanes(
     invocation_args_value: tuple[str, ...],
 ) -> tuple[str, ...]:
     passthrough: list[str] = []
-    for arg in invocation_args_value:
+    for arg in _args_without_lane_def_values(invocation_args_value):
         if arg == ".":
+            continue
+        if arg.startswith("--lane-def=") or arg == "--lanes-auto":
             continue
         passthrough.append(arg)
     return tuple(passthrough)
+
+
+def _args_without_lane_def_values(
+    invocation_args_value: tuple[str, ...],
+) -> tuple[str, ...]:
+    """Drop the value token following each bare ``--lane-def`` flag.
+
+    ``--lane-def db=tests/db`` arrives as two argv tokens; the second looks
+    positional but is the flag's value, not a collection target.
+    """
+    remaining: list[str] = []
+    skip_next = False
+    for arg in invocation_args_value:
+        if skip_next:
+            skip_next = False
+            continue
+        if arg == "--lane-def":
+            skip_next = True
+            continue
+        remaining.append(arg)
+    return tuple(remaining)

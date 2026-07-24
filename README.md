@@ -132,8 +132,31 @@ pip install pytest-lanes[rich]  # live progress table via rich
 
 ## Quickstart
 
-Declare lanes in `pytest.ini` (or `tox.ini` / `setup.cfg`) next to your
-pytest markers:
+### No config file
+
+The fastest way in needs no INI section at all. `--lanes-auto` turns the
+directory layout most projects already have into the partition — one lane
+per immediate subdirectory of the rootdir that holds tests:
+
+```bash
+pytest . --lanes-auto
+```
+
+Or name lanes inline with `--lane-def name=path[,path...]` (repeatable),
+handy for tox commands and one-off runs. Ad-hoc lanes are a partition and
+fan-out instruction only — markers stay an INI feature:
+
+```bash
+pytest . --lane-def db=tests/integration --lane-def api=tests/api,tests/contracts
+```
+
+Either way, check the partition before trusting it: `--lanes-explain`
+prints which lane claims each test and exits without running anything.
+
+### Declaring lanes in INI
+
+For durable, marker-aware lanes, declare them in `pytest.ini` (or
+`tox.ini` / `setup.cfg`) next to your pytest markers:
 
 ```ini
 [pytest]
@@ -160,6 +183,8 @@ Then:
 
 ```bash
 pytest .                          # fan out: one subprocess per lane, in parallel
+pytest . --lanes-auto             # zero-config: one lane per test subdirectory
+pytest . --lane-def db=tests/db    # define a lane inline, no config file
 pytest . --lanes-full             # standard lanes + every optional lane
 pytest . --lanes-max-workers=2    # cap concurrent lanes (default: CPU count)
 pytest . --lanes-explain          # show which lane claims each test, run nothing
@@ -322,9 +347,11 @@ SMT/hyper-threaded machines consider setting `max_workers` lower.
   beyond that queue and wait for a free slot.
 - Queued lanes launch in declared order (`subprocess_order_standard`), so
   list the slowest lanes first until duration-aware ordering exists.
-- Configuration is INI-only (`pytest.ini`, `tox.ini`, `setup.cfg`);
+- Persistent config is INI-only (`pytest.ini`, `tox.ini`, `setup.cfg`); the
+  `--lane-def` and `--lanes-auto` flags define lanes with no file, but
   `pyproject.toml` is not supported yet.
-- Lane config must live in the same file that declares `[pytest].markers`.
+- INI lane config must live in the same file that declares
+  `[pytest].markers`.
 - Lane-to-marker mapping is one marker per lane; multiple lanes may share a
   marker.
 - The orchestrator aggregates child exit codes and output; plugins that need
@@ -334,13 +361,11 @@ SMT/hyper-threaded machines consider setting `max_workers` lower.
 ## Roadmap
 
 Details and sequencing in [ROADMAP.md](ROADMAP.md). v0.2 shipped the
-bounded worker pool plus the trust and debugging tools
-(`--lanes-explain`, a live ETA, and reproduce hints); the headlines
-from here, in order:
+bounded worker pool, the trust and debugging tools (`--lanes-explain`, a
+live ETA, and reproduce hints), and zero-config lanes (`--lane-def` and
+`--lanes-auto`, no config file required); the headlines from here, in
+order:
 
-- **Zero-config lanes** — `--lane-def name=path` for ad-hoc/tox usage and
-  `--lanes-auto` (one lane per test directory) for true drop-in use with
-  no config file at all.
 - **Duration cache** — recorded per-lane wall times feeding longest-first
   scheduling and real ETAs, replacing today's declared-order queueing.
 - **`--lanes-suggest`** — inspects a suite statically and prints a

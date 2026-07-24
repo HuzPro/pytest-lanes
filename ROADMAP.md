@@ -29,34 +29,39 @@ The lane partition and its failures are now inspectable without guesswork.
   `reproduce: pytest --lane=<name>`, the exact command to re-run it in
   isolation.
 
-## v0.3 — Zero-config lanes (DX track)
+### Also in v0.2 — zero-config lanes
 
-Today the plugin requires an INI section. Two additions remove that
-requirement for the common cases:
+The plugin no longer needs an INI section for the common cases. Two flags
+define lanes with no config file, and both compose with `--lane=`,
+`--lanes-explain`, and `--lanes-max-workers`:
 
-- **`--lane-def name=path[,path...]`** (repeatable) — define lanes on the
-  command line, no config file. Composes with tox commands and one-off runs:
+- **`--lane-def name=path[,path...]`** (repeatable) — defines a lane on the
+  command line, claiming its paths as classifier prefixes and subprocess
+  paths. An automatic `other` fallback lane always claims whatever no
+  definition matched; it may legitimately collect nothing, and that empty
+  `NO_TESTS_COLLECTED` counts as success. CLI definitions take precedence
+  over INI entirely. Ad-hoc lanes apply no markers (markers stay an INI
+  feature); malformed defs, duplicates, and the reserved name `other` are
+  usage errors.
 
   ```bash
-  pytest --lane-def acceptance=tests/acceptance --lane-def db=tests/integration .
+  pytest . --lane-def db=tests/integration --lane-def api=tests/api,tests/contracts
   ```
 
-  CLI definitions take precedence over INI config when both exist. Ad-hoc
-  lanes skip marker application (markers remain an INI feature) — they are
-  purely a partition + fan-out instruction.
+- **`--lanes-auto`** — one lane per immediate subdirectory of the rootdir
+  that contains test files, sorted alphabetically; dot-directories,
+  `__pycache__`, and virtualenvs are never lanes, and stray root-level tests
+  fall to the fallback lane. If fewer than two subdirectory lanes exist it
+  prints `pytest-lanes: --lanes-auto found no test-bearing subdirectory
+  partition; running plain pytest.` and steps aside — it never pretends to
+  parallelize a partition of one. Activates only on the explicit flag.
 
-- **`--lanes-auto`** — one lane per immediate subdirectory of the test
-  root(s), plus a fallback lane for stray files. The true drop-in mode:
-  nothing to write, nothing to maintain, and the directory layout most
-  projects already have becomes the partition.
+`--lanes-explain` (shipped above) is how you verify what `--lanes-auto`
+decided before trusting the run. Non-goal: positional syntax like `pytest
+tests/acceptance:lane-name` — the colon collides with pytest's
+`file.py::test` node-id convention.
 
-`--lanes-explain` (shipped in v0.2) is how you check what `--lanes-auto`
-actually decided before trusting the run.
-
-Non-goal: positional syntax like `pytest tests/acceptance:lane-name` —
-the colon collides with pytest's `file.py::test` node-id convention.
-
-## v0.4 — Duration cache & longest-first scheduling (speed track)
+## v0.3 — Duration cache & longest-first scheduling (speed track)
 
 Today queued lanes launch in declared order. Recorded timing turns that
 into a real schedule:
@@ -86,7 +91,7 @@ Then, as a later opt-in on top of the cache:
   opt-in keeps the "the only concurrency is the concurrency you
   declared" property intact.
 
-## v0.5 — `--lanes-suggest` (DX track)
+## v0.4 — `--lanes-suggest` (DX track)
 
 Static suggestion of a lane config for a suite that has none — the
 differentiator none of the prior-art tools offer. v1 does no execution; it

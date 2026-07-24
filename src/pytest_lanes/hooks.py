@@ -29,7 +29,8 @@ from pathlib import Path
 
 import pytest
 
-from pytest_lanes.config import LaneConfig, load_lane_config_or_none
+from pytest_lanes.adhoc import resolve_lane_config_or_none
+from pytest_lanes.config import LaneConfig
 from pytest_lanes.executor import run_lane_commands
 from pytest_lanes.explain import format_lane_explanation
 from pytest_lanes.invocation import (
@@ -53,7 +54,11 @@ _rootpath: Path | None = None
 
 
 def _load_lane_config_for(config: pytest.Config) -> LaneConfig | None:
-    return load_lane_config_or_none(Path(str(config.rootpath)))
+    return resolve_lane_config_or_none(
+        cli_definitions=tuple(config.getoption("--lane-def") or ()),
+        lanes_auto=bool(config.getoption("--lanes-auto")),
+        rootpath=Path(str(config.rootpath)),
+    )
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -92,6 +97,26 @@ def pytest_addoption(parser: pytest.Parser) -> None:
             "that claimed it, then exit without running any tests."
         ),
     )
+    group.addoption(
+        "--lane-def",
+        action="append",
+        default=None,
+        metavar="NAME=PATH[,PATH...]",
+        help=(
+            "Define a lane on the command line (repeatable), no config file "
+            "needed. Takes precedence over INI lanes; ad-hoc lanes apply no "
+            "markers."
+        ),
+    )
+    group.addoption(
+        "--lanes-auto",
+        action="store_true",
+        default=False,
+        help=(
+            "Derive one lane per test-bearing subdirectory of the rootdir, "
+            "plus a fallback for stray files — no config file needed."
+        ),
+    )
 
 
 def pytest_cmdline_main(config: pytest.Config) -> int | None:
@@ -101,6 +126,11 @@ def pytest_cmdline_main(config: pytest.Config) -> int | None:
 
     lane_config = _load_lane_config_for(config)
     if lane_config is None:
+        if config.getoption("--lanes-auto"):
+            print(
+                "pytest-lanes: --lanes-auto found no test-bearing "
+                "subdirectory partition; running plain pytest."
+            )
         return None
 
     args = invocation_args(config)

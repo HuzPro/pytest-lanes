@@ -19,6 +19,8 @@ import threading
 import time
 from dataclasses import dataclass
 
+from pytest import ExitCode
+
 from pytest_lanes.constants import (
     LANE_POLL_INTERVAL_SECONDS,
     SHOW_LANE_OUTPUT_ENV,
@@ -34,6 +36,7 @@ class _LaneRun:
     name: str
     process: subprocess.Popen[str]
     exit_code: int | None = None
+    tolerate_no_tests: bool = False
 
 
 @dataclass
@@ -119,7 +122,12 @@ def _launch_single_lane(
         daemon=True,
     )
     reader.start()
-    return _LaneRun(name=command.name, process=process), reader
+    run = _LaneRun(
+        name=command.name,
+        process=process,
+        tolerate_no_tests=command.tolerate_no_tests,
+    )
+    return run, reader
 
 
 def _record_finished_lanes(
@@ -133,6 +141,8 @@ def _record_finished_lanes(
         return_code = run.process.poll()
         if return_code is None:
             continue
+        if run.tolerate_no_tests and return_code == int(ExitCode.NO_TESTS_COLLECTED):
+            return_code = 0
         run.exit_code = return_code
         reporter.mark_finished(run.name, return_code)
         work_queue.mark_finished(run.name)

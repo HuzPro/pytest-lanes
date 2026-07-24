@@ -41,6 +41,7 @@ class LaneSpec:
     subprocess_ignore: tuple[str, ...] = ()
     subprocess_ignore_other_lanes: bool = False
     subprocess_env_set: tuple[tuple[str, str], ...] = ()
+    tolerate_no_tests: bool = False
 
 
 @dataclass(frozen=True)

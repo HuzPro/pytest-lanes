@@ -2,6 +2,17 @@
 
 ## 0.2.0 — unreleased
 
+- **Zero-config lanes.** Two ways to get lanes with no INI file:
+  `--lane-def name=path[,path...]` (repeatable) defines lanes on the
+  command line — CLI definitions take precedence over INI config — and
+  `--lanes-auto` derives one lane per test-bearing subdirectory of the
+  rootdir (skipping hidden directories and virtualenvs), falling back to
+  plain pytest with a printed notice when no usable partition exists.
+  Both add an automatic fallback lane so `pytest .` still runs every
+  unclaimed test; that lane may legitimately collect nothing, so its
+  NO_TESTS_COLLECTED exit is treated as success. Ad-hoc lanes apply no
+  markers — markers stay an INI feature.
+
 - **`--lanes-explain`.** Lists each collected test, the lane that claimed
   it, and the classifier rule that matched (e.g.
   `io_tests/test_io.py::test_x -> io (classifier_path_prefixes: io_tests/)`),

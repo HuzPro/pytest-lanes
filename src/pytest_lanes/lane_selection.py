@@ -100,7 +100,8 @@ def apply_lane_filter(
 
     for item in items:
         spec = lane_for_item(item, rootpath, lane_config)
-        item.add_marker(marker_factory(spec.marker))
+        if spec.marker:
+            item.add_marker(marker_factory(spec.marker))
 
         if not selected:
             continue

@@ -22,11 +22,17 @@ from pytest_lanes.config import LaneConfig, LaneSpec
 
 @dataclass(frozen=True)
 class LaneCommand:
-    """One lane subprocess: its pytest argv (minus the interpreter) and env overrides."""
+    """One lane subprocess: its pytest argv (minus the interpreter) and env overrides.
+
+    ``tolerate_no_tests`` marks auto-generated fallback lanes that may
+    legitimately collect nothing; the executor treats their
+    NO_TESTS_COLLECTED exit as success.
+    """
 
     name: str
     args: tuple[str, ...]
     env_set: tuple[tuple[str, str], ...] = ()
+    tolerate_no_tests: bool = False
 
 
 def relative_test_path(item: object, rootpath: Path) -> str:
@@ -160,6 +166,7 @@ def build_lane_commands(
                 name=spec.name,
                 args=tuple(args),
                 env_set=spec.subprocess_env_set,
+                tolerate_no_tests=spec.tolerate_no_tests,
             )
         )
 

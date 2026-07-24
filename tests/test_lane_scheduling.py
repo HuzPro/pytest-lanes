@@ -11,7 +11,9 @@ from unittest.mock import patch
 
 import pytest
 
+from pytest_lanes import executor
 from pytest_lanes.lanes import LaneCommand
+from pytest_lanes.reporter import LaneProgressReporter
 from pytest_lanes.scheduler import (
     DeclaredOrderPolicy,
     LaneWorkQueue,
@@ -94,3 +96,44 @@ def test_non_positive_max_workers_is_rejected() -> None:
 def test_detected_cpu_count_reports_at_least_one_core() -> None:
     with patch("os.cpu_count", return_value=None):
         assert detected_cpu_count() == 1
+
+
+class _FakeProcess:
+    def __init__(self, exit_code: int) -> None:
+        self._exit_code = exit_code
+
+    def poll(self) -> int:
+        return self._exit_code
+
+
+def test_tolerant_lane_treats_no_tests_collected_exit_as_success() -> None:
+    reporter = LaneProgressReporter(clock=lambda: 0.0)
+    reporter.register_lanes(["other"])
+    reporter.mark_started("other")
+    run = executor._LaneRun(
+        name="other", process=_FakeProcess(5), tolerate_no_tests=True
+    )
+    work_queue = LaneWorkQueue(
+        commands=_commands("other"), max_workers=1, policy=DeclaredOrderPolicy()
+    )
+    work_queue.mark_launched("other")
+
+    executor._record_finished_lanes([run], reporter, work_queue)
+
+    assert run.exit_code == 0
+    assert reporter.lane_results()[0]["exit_code"] == 0
+
+
+def test_intolerant_lane_keeps_no_tests_collected_as_a_failure() -> None:
+    reporter = LaneProgressReporter(clock=lambda: 0.0)
+    reporter.register_lanes(["db"])
+    reporter.mark_started("db")
+    run = executor._LaneRun(name="db", process=_FakeProcess(5), tolerate_no_tests=False)
+    work_queue = LaneWorkQueue(
+        commands=_commands("db"), max_workers=1, policy=DeclaredOrderPolicy()
+    )
+    work_queue.mark_launched("db")
+
+    executor._record_finished_lanes([run], reporter, work_queue)
+
+    assert run.exit_code == 5

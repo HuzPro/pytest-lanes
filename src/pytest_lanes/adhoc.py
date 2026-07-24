@@ -1,0 +1,161 @@
+"""Ad-hoc lane construction for ``--lane-def`` and ``--lanes-auto``.
+
+Both build a regular :class:`~pytest_lanes.config.LaneConfig` without any
+INI file, so the whole downstream pipeline (classification, subprocess argv
+construction, ``--lane`` selection, ``--lanes-explain``) works unchanged.
+Ad-hoc lanes apply no markers — markers stay an INI feature.
+
+The auto-generated fallback lane keeps the "``pytest .`` runs everything"
+invariant: it claims every test outside the declared lanes. Because it may
+legitimately claim nothing, it is marked ``tolerate_no_tests`` so pytest's
+NO_TESTS_COLLECTED exit from that subprocess does not fail the run.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from pathlib import Path
+
+import pytest
+
+from pytest_lanes.config import LaneConfig, LaneSpec, load_lane_config_or_none
+
+FALLBACK_LANE_NAME = "other"
+MINIMUM_USEFUL_PARTITION = 2
+_TEST_FILE_PATTERNS = ("test_*.py", "*_test.py")
+
+
+def resolve_lane_config_or_none(
+    cli_definitions: tuple[str, ...],
+    lanes_auto: bool,
+    rootpath: Path,
+) -> LaneConfig | None:
+    """Resolve the active lane config: CLI definitions > auto partition > INI.
+
+    Returns ``None`` when nothing configures lanes — the dormancy guarantee:
+    without an INI section or an explicit zero-config flag, the plugin
+    behaves as if it were not installed.
+    """
+    if cli_definitions:
+        return lane_config_from_definitions(cli_definitions)
+    if lanes_auto:
+        auto_config = auto_lane_config_or_none(rootpath)
+        if auto_config is not None:
+            return auto_config
+    return load_lane_config_or_none(rootpath)
+
+
+def lane_config_from_definitions(definitions: Sequence[str]) -> LaneConfig:
+    """Build a LaneConfig from ``name=path[,path...]`` definition strings."""
+    lane_specs = [_parse_definition(definition) for definition in definitions]
+    _validate_definition_names(lane_specs)
+    lane_specs.append(_fallback_lane())
+
+    return LaneConfig(
+        lanes=tuple(lane_specs),
+        subprocess_order_standard=tuple(spec.name for spec in lane_specs),
+    )
+
+
+def _parse_definition(definition: str) -> LaneSpec:
+    name, separator, paths_text = definition.partition("=")
+    name = name.strip()
+    paths = tuple(path.strip() for path in paths_text.split(",") if path.strip())
+    if not separator or not name or not paths:
+        raise pytest.UsageError(
+            f"--lane-def '{definition}' must be in name=path[,path...] form."
+        )
+
+    return LaneSpec(
+        name=name,
+        marker="",
+        classifier_path_prefixes=paths,
+        subprocess_paths=paths,
+    )
+
+
+def auto_lane_config_or_none(rootpath: Path) -> LaneConfig | None:
+    """Build one lane per test-bearing immediate subdirectory of ``rootpath``.
+
+    Returns ``None`` when fewer than two subdirectory lanes exist — a
+    partition of one is serial execution with extra overhead, so the run
+    should fall back to plain pytest instead.
+    """
+    lane_dir_names = sorted(
+        directory.name
+        for directory in rootpath.iterdir()
+        if directory.is_dir()
+        and _is_lane_candidate(directory)
+        and _contains_test_files(directory)
+    )
+    if len(lane_dir_names) < MINIMUM_USEFUL_PARTITION:
+        return None
+
+    fallback = _fallback_lane(name=_unclaimed_name(lane_dir_names))
+    lane_specs = [
+        LaneSpec(
+            name=name,
+            marker="",
+            classifier_path_prefixes=(name,),
+            subprocess_paths=(name,),
+        )
+        for name in lane_dir_names
+    ]
+    lane_specs.append(fallback)
+
+    order = list(lane_dir_names)
+    if _has_root_level_test_files(rootpath):
+        order.append(fallback.name)
+
+    return LaneConfig(lanes=tuple(lane_specs), subprocess_order_standard=tuple(order))
+
+
+def _is_lane_candidate(directory: Path) -> bool:
+    if directory.name.startswith(".") or directory.name == "__pycache__":
+        return False
+    is_virtualenv = (directory / "pyvenv.cfg").exists()
+    return not is_virtualenv
+
+
+def _contains_test_files(directory: Path) -> bool:
+    return any(
+        next(directory.rglob(pattern), None) is not None
+        for pattern in _TEST_FILE_PATTERNS
+    )
+
+
+def _has_root_level_test_files(rootpath: Path) -> bool:
+    return any(
+        next(rootpath.glob(pattern), None) is not None
+        for pattern in _TEST_FILE_PATTERNS
+    )
+
+
+def _unclaimed_name(taken_names: Sequence[str]) -> str:
+    name = FALLBACK_LANE_NAME
+    while name in taken_names:
+        name = f"{name}_files"
+    return name
+
+
+def _validate_definition_names(lane_specs: Sequence[LaneSpec]) -> None:
+    seen: set[str] = set()
+    for spec in lane_specs:
+        if spec.name == FALLBACK_LANE_NAME:
+            raise pytest.UsageError(
+                f"--lane-def name '{FALLBACK_LANE_NAME}' is reserved for the "
+                "automatic fallback lane."
+            )
+        if spec.name in seen:
+            raise pytest.UsageError(f"--lane-def name '{spec.name}' is defined twice.")
+        seen.add(spec.name)
+
+
+def _fallback_lane(name: str = FALLBACK_LANE_NAME) -> LaneSpec:
+    return LaneSpec(
+        name=name,
+        marker="",
+        classifier_fallback=True,
+        subprocess_ignore_other_lanes=True,
+        tolerate_no_tests=True,
+    )
