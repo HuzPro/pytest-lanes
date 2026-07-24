@@ -43,5 +43,21 @@ never shard — no data, no split.
 With `db_tests` at 62s against a 30s second-longest lane, plain lanes are
 bounded by the db lane. The optimized config attacks both terms of the
 ceiling `min(T/2, D1 - D2)`: in-lane xdist shrinks the unit lane, and
-sharding halves the db lane's test time for one extra 6s spin-up. Exact
+sharding halves the db lane's test time for one extra 6s spin-up.
+
+Measured 2026-07-24 (Ryzen 5 7600, 6C/12T, medians of 3 rounds):
+
+| Mode | Median |
+|---|---:|
+| serial | 114.5s |
+| xdist `-n auto` | 24.9s |
+| xdist `-n auto --dist loadfile` | 32.9s |
+| lanes (plain) | 68.0s |
+| **lanes-opt** | **39.1s** |
+
+Read it honestly: the optimized config cuts plain lanes by 1.74x, and raw
+xdist still wins here — this suite is 100% concurrency-safe sleeps, which
+is xdist's best case and nobody's real codebase. The interesting rows for
+real suites are lanes vs lanes-opt (what the optimizations buy) and the
+`examples/containers` example (what shared state does to xdist). Exact
 numbers vary by core count — run it on your machine.
