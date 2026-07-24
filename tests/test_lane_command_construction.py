@@ -136,6 +136,22 @@ def test_passthrough_args_precede_lane_specific_args_for_every_lane() -> None:
         assert args[1] == "--tb=long"
 
 
+def test_every_lane_child_disables_the_cacheprovider() -> None:
+    """Concurrent children racing on `.pytest_cache` creation is a real
+    failure mode (transient `pytest-cache-files-*` dirs break sibling
+    collection on Windows), and last-writer-wins would clobber `lastfailed`
+    anyway — children must not touch pytest's cache at all."""
+    config = _example_lane_config()
+
+    commands = build_lane_commands(
+        mode="standard", passthrough_args=(), lane_config=config
+    )
+
+    for command in commands:
+        plugin_flag_index = command.args.index("-p")
+        assert command.args[plugin_flag_index + 1] == "no:cacheprovider"
+
+
 def test_empty_lane_config_with_no_subprocess_lanes_returns_empty_command_list() -> (
     None
 ):

@@ -151,7 +151,11 @@ def build_lane_commands(
 
     commands: list[LaneCommand] = []
     for spec in lane_specs:
-        args: list[str] = [*passthrough_args, "--color=no"]
+        # Children must not touch pytest's cache: concurrent lanes racing on
+        # `.pytest_cache` creation breaks sibling collection (transient
+        # `pytest-cache-files-*` dirs on Windows), and parallel writers
+        # would clobber `lastfailed` last-writer-wins regardless.
+        args: list[str] = [*passthrough_args, "--color=no", "-p", "no:cacheprovider"]
         args.extend(spec.subprocess_paths)
         args.extend(spec.subprocess_nodeids)
         for ignore_path in spec.subprocess_ignore:
