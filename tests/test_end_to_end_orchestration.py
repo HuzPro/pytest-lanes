@@ -179,7 +179,10 @@ def test_orchestrated_run_records_lane_durations_for_the_next_run(
     assert durations_file.exists()
     recorded = json.loads(durations_file.read_text(encoding="utf-8"))
     assert set(recorded) == {"io", "other"}
-    assert all(seconds > 0 for seconds in recorded.values())
+    assert all(entry["total"] > 0 for entry in recorded.values())
+    assert "io_tests/test_io.py" in recorded["io"]["files"]
+    assert recorded["io"]["files"]["io_tests/test_io.py"] > 0
+    assert recorded["io"]["collect"] > 0
 
 
 def test_lane_defs_orchestrate_without_any_config_file(tmp_path: Path) -> None:

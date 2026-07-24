@@ -11,9 +11,12 @@ from pytest_lanes.hooks import (
     pytest_collection_finish,
     pytest_collection_modifyitems,
     pytest_configure,
+    pytest_runtest_logreport,
     pytest_runtest_setup,
     pytest_runtest_teardown,
     pytest_runtestloop,
+    pytest_sessionfinish,
+    pytest_sessionstart,
 )
 
 __all__ = [
@@ -22,7 +25,10 @@ __all__ = [
     "pytest_collection_finish",
     "pytest_collection_modifyitems",
     "pytest_configure",
+    "pytest_runtest_logreport",
     "pytest_runtest_setup",
     "pytest_runtest_teardown",
     "pytest_runtestloop",
+    "pytest_sessionfinish",
+    "pytest_sessionstart",
 ]

@@ -2,6 +2,14 @@
 
 ## 0.2.0 — unreleased
 
+- **Per-file run measurement (durations v2).** Lane children now measure
+  their own runs — per-file test durations, `collect` (session start to
+  end of collection), and `startup` (end of collection to first test,
+  which captures fixture/container spin-up) — and report them to the
+  parent, which merges full lane records into the duration store. v1
+  duration files migrate transparently. This is the data layer for shard
+  planning and `--lanes-suggest` split advice.
+
 - **Lane children no longer touch pytest's cache** (`-p no:cacheprovider`
   in every child argv). Concurrent children racing to create
   `.pytest_cache` could break sibling collection with a transient

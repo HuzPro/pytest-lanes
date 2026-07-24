@@ -11,22 +11,27 @@ skip re-orchestration.
 
 from __future__ import annotations
 
+import json
 import os
 import queue
+import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
 from pytest import ExitCode
 
 from pytest_lanes.constants import (
+    CHILD_DURATIONS_OUT_ENV,
     LANE_POLL_INTERVAL_SECONDS,
     SHOW_LANE_OUTPUT_ENV,
     TEST_ORCHESTRATION_CHILD_ENV,
 )
-from pytest_lanes.durations import DurationStore, InMemoryDurationStore
+from pytest_lanes.durations import DurationStore, InMemoryDurationStore, LaneRecord
 from pytest_lanes.lanes import LaneCommand
 from pytest_lanes.reporter import LaneConsolePresenter, LaneProgressReporter
 from pytest_lanes.scheduler import LaneWorkQueue, ordering_policy_for
@@ -45,6 +50,7 @@ class _RunContext:
     lane_output_queue: queue.Queue[tuple[str, str]]
     reporter: LaneProgressReporter
     presenter: LaneConsolePresenter
+    durations_dir: Path
 
 
 def run_lane_commands(
@@ -62,6 +68,7 @@ def run_lane_commands(
         lane_output_queue=queue.Queue(),
         reporter=reporter,
         presenter=LaneConsolePresenter(reporter, show_lane_stream=show_lane_output),
+        durations_dir=Path(tempfile.mkdtemp(prefix="pytest-lanes-durations-")),
     )
     work_queue = LaneWorkQueue(
         commands,
@@ -84,20 +91,39 @@ def run_lane_commands(
     wall_seconds = time.perf_counter() - start_wall
     context.presenter.print_summary(reporter, wall_seconds=wall_seconds)
 
-    _record_run_durations(reporter, store)
+    _record_run_durations(reporter, store, context.durations_dir)
+    shutil.rmtree(context.durations_dir, ignore_errors=True)
 
     exit_codes = [result["exit_code"] for result in reporter.lane_results()]
     return max(exit_codes) if exit_codes else 0
 
 
-def _record_run_durations(reporter: LaneProgressReporter, store: DurationStore) -> None:
-    finished = {
-        result["name"]: result["duration"]
-        for result in reporter.lane_results()
-        if result["duration"] > 0
-    }
+def _record_run_durations(
+    reporter: LaneProgressReporter,
+    store: DurationStore,
+    durations_dir: Path,
+) -> None:
+    finished: dict[str, LaneRecord] = {}
+    for result in reporter.lane_results():
+        if result["duration"] <= 0:
+            continue
+        measured = _read_child_measurements(durations_dir / f"{result['name']}.json")
+        finished[result["name"]] = LaneRecord(
+            total=result["duration"],
+            startup=float(measured.get("startup", 0.0)),
+            collect=float(measured.get("collect", 0.0)),
+            files=tuple(sorted(dict(measured.get("files", {})).items())),
+        )
     if finished:
         store.record(finished)
+
+
+def _read_child_measurements(path: Path) -> dict:
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return raw if isinstance(raw, dict) else {}
 
 
 def _run_scheduling_loop(
@@ -135,7 +161,7 @@ def _run_scheduling_loop(
 def _launch_single_lane(
     command: LaneCommand, context: _RunContext
 ) -> tuple[_LaneRun, threading.Thread]:
-    process = _spawn_lane_subprocess(command)
+    process = _spawn_lane_subprocess(command, context.durations_dir)
     context.reporter.mark_started(command.name)
     reader = threading.Thread(
         target=stream_lane_output,
@@ -169,9 +195,12 @@ def _record_finished_lanes(
         work_queue.mark_finished(run.name)
 
 
-def _spawn_lane_subprocess(command: LaneCommand) -> subprocess.Popen[str]:
+def _spawn_lane_subprocess(
+    command: LaneCommand, durations_dir: Path
+) -> subprocess.Popen[str]:
     env = os.environ.copy()
     env[TEST_ORCHESTRATION_CHILD_ENV] = "1"
+    env[CHILD_DURATIONS_OUT_ENV] = str(durations_dir / f"{command.name}.json")
     for key, value in command.env_set:
         env[key] = value
     return subprocess.Popen(
