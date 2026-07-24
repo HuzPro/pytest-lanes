@@ -1,24 +1,34 @@
 # Bench example: a representative suite for comparing execution modes
 
 The demo and containers examples show *mechanics*; this one is shaped for
-*measurement*. It approximates how real suites actually look — many files
-with lopsided runtimes, expensive lanes paying a fixed per-process
-environment cost — at ~115 seconds of linear (single-process) time:
+*measurement*. It approximates how real suites actually behave — and every
+cost in it is a documented real-world effect, not a synthetic handicap:
 
-| Lane | Files | Test time | Simulated spin-up | Serial |
+- **Tests burn real CPU** (calibrated pbkdf2 hashing; 1 unit ~ 1s of
+  single-core work on the reference machine). Oversubscribed workers
+  therefore contend for physical cores instead of parking for free the
+  way sleeping tests do.
+- **Each heavy lane pays a per-process environment spin-up** (a
+  session-scoped autouse fixture burning CPU, standing in for a container
+  or daemon boot). A lane child pays it once; each lane shard pays it
+  again; every xdist worker that touches the directory pays its own copy.
+- **Each test module pays an import cost** (module-level burn standing in
+  for a real framework + app import graph). Every xdist worker collects
+  the whole suite, so every worker pays the full import bill; lane
+  children import only their own lane's files.
+
+The shape (~114 units linear, lopsided file times):
+
+| Lane | Files | Test units | Spin-up | Serial |
 |---|---:|---:|---:|---:|
-| `db_tests` | 6 | 56s (lopsided: 18s..4s per file) | 6s | 62s |
-| `api_tests` | 3 | 19s | 3s | 22s |
-| `unit_tests` | 8 | 30s (many small files) | — | 30s |
+| `db_tests` | 6 | 56u (lopsided: 18u..4u per file) | 6u | 62u |
+| `api_tests` | 3 | 19u | 3u | 22u |
+| `unit_tests` | 8 | 30u (many small files) | — | 30u |
 
-The spin-up is a session-scoped autouse fixture per lane directory: every
-*process* that runs tests from that directory pays it once — a lane child
-once, each lane shard again, and every xdist worker that touches the
-directory pays its own copy. That is exactly the fixed-cost profile the
-modes differ on. Tests are plain sleeps and fully concurrency-safe by
-construction, so every mode completes — this example isolates scheduling,
-not safety (see `examples/containers` for what shared state does to
-per-test distribution).
+Tests are fully concurrency-safe by construction so every mode completes —
+this example isolates scheduling economics, not safety (see
+`examples/containers` for what shared state does to per-test
+distribution).
 
 ## Run it
 
@@ -28,36 +38,40 @@ python bench.py            # 5 modes x (1 warm-up + 3 timed rounds)
 python bench.py --runs 1   # quicker look
 ```
 
-Modes compared: `serial`, `xdist-load` (`-n auto`), `xdist-loadfile`,
-`lanes` (plain three-lane config), and `lanes-opt` — the optimized
-config: `divisible = files` on the db lane (shard planning from recorded
-durations) plus `lane_numprocesses = 4` on the unit lane (in-lane xdist).
+Modes: `serial`, `xdist-load` (`-n auto`), `xdist-loadfile`, `lanes`
+(plain three-lane config), and `lanes-opt` — `divisible = files` on the
+db lane (shard planning from recorded durations) plus
+`lane_numprocesses = 4` on the unit lane (in-lane xdist). The warm-up
+doubles as the measurement pass: it records per-file durations, which is
+what lets the optimized mode's shard planner fire in the timed rounds.
+First-ever runs never shard — no data, no split.
 
-The warm-up run doubles as the measurement pass: it records per-file
-durations into `.pytest_cache/v/pytest-lanes/`, which is what lets the
-optimized mode's shard planner fire in the timed rounds. First-ever runs
-never shard — no data, no split.
+## Measured results
 
-## What to expect
+2026-07-25, Ryzen 5 7600 (6C/12T), Windows 11, medians of 3 rounds:
 
-With `db_tests` at 62s against a 30s second-longest lane, plain lanes are
-bounded by the db lane. The optimized config attacks both terms of the
-ceiling `min(T/2, D1 - D2)`: in-lane xdist shrinks the unit lane, and
-sharding halves the db lane's test time for one extra 6s spin-up.
+| Mode | Median | vs serial |
+|---|---:|---:|
+| serial | 126.9s | 1.0x |
+| xdist `-n auto` | 57.6s | 2.20x |
+| xdist `-n auto --dist loadfile` | 61.8s | 2.05x |
+| lanes (plain) | 76.9s | 1.65x |
+| **lanes-opt** | **51.1s** | **2.48x** |
 
-Measured 2026-07-24 (Ryzen 5 7600, 6C/12T, medians of 3 rounds):
+Read it honestly:
 
-| Mode | Median |
-|---|---:|
-| serial | 114.5s |
-| xdist `-n auto` | 24.9s |
-| xdist `-n auto --dist loadfile` | 32.9s |
-| lanes (plain) | 68.0s |
-| **lanes-opt** | **39.1s** |
-
-Read it honestly: the optimized config cuts plain lanes by 1.74x, and raw
-xdist still wins here — this suite is 100% concurrency-safe sleeps, which
-is xdist's best case and nobody's real codebase. The interesting rows for
-real suites are lanes vs lanes-opt (what the optimizations buy) and the
-`examples/containers` example (what shared state does to xdist). Exact
-numbers vary by core count — run it on your machine.
+- **lanes-opt beats the best xdist mode by 1.13x** — the same ordering,
+  for the same reasons, as the ~2,430-test production suite in the main
+  README (27.0s vs 33.0s there). The costs that decide it are the
+  per-worker import/collection bill and the duplicated environment
+  spin-ups, both of which scale with worker count under xdist and with
+  lane/shard count under lanes.
+- **Plain lanes loses to xdist here** (76.9s vs 57.6s): its wall time is
+  bounded by the whole 62u db lane. That is exactly the gap the optimized
+  config closes — sharding attacks `min(T/2, D1 - D2)` from the T side,
+  in-lane xdist from the D2 side.
+- Remove the import and spin-up costs and xdist wins this suite outright
+  (we measured the sleep-based variant of this example at xdist 24.9s vs
+  lanes-opt 39.1s). Which model matches your suite is an empirical
+  question — heavy import graphs and expensive per-process fixtures are
+  the signal that lanes will pay.
