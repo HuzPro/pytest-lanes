@@ -11,9 +11,8 @@ run concurrently; the rest queue and launch as slots free. The count comes
 from the `max_workers` INI key under `[pytest-lanes]` or the
 `--lanes-max-workers=N` flag — default `os.cpu_count()`, precedence CLI >
 INI > detected CPU count, values <= 0 rejected. Queued lanes launch in
-declared `subprocess_order_standard` order, so for now the guidance is to
-list the slowest lanes first. Real longest-first ordering waits for real
-duration data — deliberately not guessed.
+declared `subprocess_order_standard` order on the first run, and
+longest-first once the duration cache (below) has data.
 
 ### Also in v0.2 — trust & debugging DX
 
@@ -61,37 +60,25 @@ decided before trusting the run. Non-goal: positional syntax like `pytest
 tests/acceptance:lane-name` — the colon collides with pytest's
 `file.py::test` node-id convention.
 
-## v0.3 — Duration cache & longest-first scheduling (speed track)
+### Also in v0.2 — duration cache & longest-first scheduling
 
-Today queued lanes launch in declared order. Recorded timing turns that
-into a real schedule:
+Queued lanes now launch on real timing instead of the "list slowest first"
+convention.
 
-- **Duration cache** — persist per-lane wall times from each run via
-  pytest's `config.cache` (key `pytest-lanes/lane-durations`), the same
-  idea as pytest-split's `.test_durations`. Gives the scheduler real
-  numbers instead of the "list slowest first" convention.
-- **`LongestFirstPolicy`** — an ordering strategy that queues the longest
-  lanes first once cached data exists and falls back to declared order
-  until it does. Also produces better ETAs for pending lanes.
+- **Duration cache** — each run records per-lane wall times to
+  `.pytest_cache/v/pytest-lanes/lane_durations.json` (under pytest's
+  cache directory), merged with prior data; a missing or corrupt file
+  degrades to "no data" rather than erroring.
+- **Longest-first scheduling** — once recorded data exists, queued lanes
+  launch longest-first instead of declared order. Lanes with no recorded
+  duration launch first, keeping their declared relative order — an
+  unmeasured lane may be the longest, so starting it early is the safe
+  bet. The first run (no data yet) uses declared
+  `subprocess_order_standard` order. Recorded durations also feed the live
+  ETA: lanes still queued for a slot contribute their recorded duration to
+  the estimated-time-remaining readout.
 
-Then, as a later opt-in on top of the cache:
-
-- **Lane sharding (load balancing)** — when a worker goes idle and a
-  divisible lane still has queued work, move file-sized shards of it onto
-  the idle worker. The move only pays when
-  `remaining lane time > environment spin-up cost + collection cost`, so
-  the balancer must price each lane's fixed costs (a Postgres container
-  is ~5-7s; the cache provides the numbers).
-
-  **Correctness constraint (hard requirement):** sharding is opt-in per
-  lane (`divisible = files`). Splitting a lane redistributes execution
-  order across processes — exactly the failure mode measured in the
-  README's `loadgroup` row, where per-test grouping produced 2–16
-  scheduling-dependent failures per run. File granularity plus explicit
-  opt-in keeps the "the only concurrency is the concurrency you
-  declared" property intact.
-
-## v0.4 — `--lanes-suggest` (DX track)
+## v0.3 — `--lanes-suggest` (DX track)
 
 Static suggestion of a lane config for a suite that has none — the
 differentiator none of the prior-art tools offer. v1 does no execution; it
@@ -108,6 +95,25 @@ explicitly as a suggestion to read and adjust — then verify with
 `--lanes-explain` before committing it. Resolving the real fixture-request
 graph (which test actually pulls which session-scoped fixture) is out of
 scope for v1: the static scan is a starting point, not an oracle.
+
+## Later — lane sharding (load balancing)
+
+An opt-in on top of the duration cache:
+
+- **Lane sharding (load balancing)** — when a worker goes idle and a
+  divisible lane still has queued work, move file-sized shards of it onto
+  the idle worker. The move only pays when
+  `remaining lane time > environment spin-up cost + collection cost`, so
+  the balancer must price each lane's fixed costs (a Postgres container
+  is ~5-7s; the cache provides the numbers).
+
+  **Correctness constraint (hard requirement):** sharding is opt-in per
+  lane (`divisible = files`). Splitting a lane redistributes execution
+  order across processes — exactly the failure mode measured in the
+  README's `loadgroup` row, where per-test grouping produced 2–16
+  scheduling-dependent failures per run. File granularity plus explicit
+  opt-in keeps the "the only concurrency is the concurrency you
+  declared" property intact.
 
 ## Also planned
 

@@ -9,6 +9,7 @@ current environment (``pip install -e .``).
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -162,6 +163,23 @@ def test_lanes_explain_lists_each_test_with_lane_and_rule_without_running(
         "unit_tests/test_unit.py::test_unit_lane_runs -> other (classifier_fallback)"
     ) in result.stdout
     assert "2 tests in 2 lanes" in result.stdout
+
+
+def test_orchestrated_run_records_lane_durations_for_the_next_run(
+    tmp_path: Path,
+) -> None:
+    _write_demo_project(tmp_path)
+
+    result = _run_pytest_in(tmp_path)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    durations_file = (
+        tmp_path / ".pytest_cache" / "v" / "pytest-lanes" / "lane_durations.json"
+    )
+    assert durations_file.exists()
+    recorded = json.loads(durations_file.read_text(encoding="utf-8"))
+    assert set(recorded) == {"io", "other"}
+    assert all(seconds > 0 for seconds in recorded.values())
 
 
 def test_lane_defs_orchestrate_without_any_config_file(tmp_path: Path) -> None:

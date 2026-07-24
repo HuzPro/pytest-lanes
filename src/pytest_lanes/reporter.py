@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Protocol, TypedDict
 
@@ -177,10 +177,15 @@ class LaneState:
 
 
 class LaneProgressReporter:
-    def __init__(self, clock: Callable[[], float] | None = None) -> None:
+    def __init__(
+        self,
+        clock: Callable[[], float] | None = None,
+        expected_durations: Mapping[str, float] | None = None,
+    ) -> None:
         self._clock = clock or time.perf_counter
         self._ordered_names: list[str] = []
         self._lanes: dict[str, LaneState] = {}
+        self._expected_durations = dict(expected_durations or {})
 
     def register_lanes(self, lane_names: list[str]) -> None:
         self._ordered_names = list(lane_names)
@@ -281,11 +286,12 @@ class LaneProgressReporter:
         return remaining
 
     def estimated_remaining_seconds(self) -> float | None:
+        pending_expected = self._pending_lanes_expected_seconds()
         running_lanes = [
             lane for lane in self._lanes.values() if lane.status == LANE_STATUS_RUNNING
         ]
         if not running_lanes:
-            return 0.0
+            return pending_expected
 
         now = self._clock()
         progress_based_remaining, progress_based_count = self._estimate_from_progress(
@@ -293,7 +299,7 @@ class LaneProgressReporter:
         )
 
         if progress_based_count == len(running_lanes):
-            return progress_based_remaining
+            return progress_based_remaining + pending_expected
 
         completed_durations = [
             lane.duration
@@ -301,13 +307,22 @@ class LaneProgressReporter:
             if lane.status in {LANE_STATUS_PASS, LANE_STATUS_FAIL}
         ]
         if not completed_durations:
-            return progress_based_remaining if progress_based_count > 0 else None
+            if progress_based_count > 0:
+                return progress_based_remaining + pending_expected
+            return pending_expected if pending_expected > 0 else None
 
         average_duration = sum(completed_durations) / len(completed_durations)
         remaining = progress_based_remaining + self._estimate_from_average(
             running_lanes, now, average_duration
         )
-        return remaining
+        return remaining + pending_expected
+
+    def _pending_lanes_expected_seconds(self) -> float:
+        return sum(
+            self._expected_durations.get(lane.name, 0.0)
+            for lane in self._lanes.values()
+            if lane.status == LANE_STATUS_PENDING
+        )
 
     def failed_tests_for(self, lane_name: str) -> list[str]:
         return list(self._lanes[lane_name].failed_tests)

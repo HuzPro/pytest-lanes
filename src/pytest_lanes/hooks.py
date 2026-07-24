@@ -31,6 +31,7 @@ import pytest
 
 from pytest_lanes.adhoc import resolve_lane_config_or_none
 from pytest_lanes.config import LaneConfig
+from pytest_lanes.durations import duration_store_for_rootdir
 from pytest_lanes.executor import run_lane_commands
 from pytest_lanes.explain import format_lane_explanation
 from pytest_lanes.invocation import (
@@ -147,7 +148,11 @@ def pytest_cmdline_main(config: pytest.Config) -> int | None:
         config_value=lane_config.max_workers,
         detected=detected_cpu_count(),
     )
-    return run_lane_commands(commands, max_workers=max_workers)
+    return run_lane_commands(
+        commands,
+        max_workers=max_workers,
+        duration_store=duration_store_for_rootdir(Path(str(config.rootpath))),
+    )
 
 
 def pytest_configure(config: pytest.Config) -> None:

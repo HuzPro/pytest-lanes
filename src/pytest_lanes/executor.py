@@ -26,9 +26,10 @@ from pytest_lanes.constants import (
     SHOW_LANE_OUTPUT_ENV,
     TEST_ORCHESTRATION_CHILD_ENV,
 )
+from pytest_lanes.durations import DurationStore, InMemoryDurationStore
 from pytest_lanes.lanes import LaneCommand
 from pytest_lanes.reporter import LaneConsolePresenter, LaneProgressReporter
-from pytest_lanes.scheduler import DeclaredOrderPolicy, LaneWorkQueue
+from pytest_lanes.scheduler import LaneWorkQueue, ordering_policy_for
 
 
 @dataclass
@@ -46,10 +47,16 @@ class _RunContext:
     presenter: LaneConsolePresenter
 
 
-def run_lane_commands(commands: list[LaneCommand], max_workers: int) -> int:
+def run_lane_commands(
+    commands: list[LaneCommand],
+    max_workers: int,
+    duration_store: DurationStore | None = None,
+) -> int:
     start_wall = time.perf_counter()
     show_lane_output = os.environ.get(SHOW_LANE_OUTPUT_ENV) == "1"
-    reporter = LaneProgressReporter()
+    store = duration_store if duration_store is not None else InMemoryDurationStore()
+    recorded_durations = store.recorded_durations()
+    reporter = LaneProgressReporter(expected_durations=recorded_durations)
     reporter.register_lanes([command.name for command in commands])
     context = _RunContext(
         lane_output_queue=queue.Queue(),
@@ -57,7 +64,9 @@ def run_lane_commands(commands: list[LaneCommand], max_workers: int) -> int:
         presenter=LaneConsolePresenter(reporter, show_lane_stream=show_lane_output),
     )
     work_queue = LaneWorkQueue(
-        commands, max_workers=max_workers, policy=DeclaredOrderPolicy()
+        commands,
+        max_workers=max_workers,
+        policy=ordering_policy_for(recorded_durations),
     )
 
     runs: list[_LaneRun] = []
@@ -75,8 +84,20 @@ def run_lane_commands(commands: list[LaneCommand], max_workers: int) -> int:
     wall_seconds = time.perf_counter() - start_wall
     context.presenter.print_summary(reporter, wall_seconds=wall_seconds)
 
+    _record_run_durations(reporter, store)
+
     exit_codes = [result["exit_code"] for result in reporter.lane_results()]
     return max(exit_codes) if exit_codes else 0
+
+
+def _record_run_durations(reporter: LaneProgressReporter, store: DurationStore) -> None:
+    finished = {
+        result["name"]: result["duration"]
+        for result in reporter.lane_results()
+        if result["duration"] > 0
+    }
+    if finished:
+        store.record(finished)
 
 
 def _run_scheduling_loop(

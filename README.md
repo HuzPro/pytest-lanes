@@ -251,7 +251,8 @@ pytest .
   │     │     -> N argv lists, one per subprocess lane
   │     └── run_lane_commands(commands, max_workers)
   │           ├── launch up to max_workers `python -m pytest <argv>` subprocesses;
-  │           │     remaining lanes queue in declared order, start as slots free
+  │           │     remaining lanes queue longest-first from recorded durations
+  │           │     (declared order on the first run), start as slots free
   │           ├── set PYTEST_LANES_CHILD=1 so children skip re-orchestration
   │           ├── reader threads stream child stdout into a shared queue
   │           ├── LaneProgressReporter parses progress, counts, failures
@@ -262,6 +263,10 @@ pytest .
         ├── apply the lane's marker
         └── if --lane=X was passed, skip items whose lane is not selected
 ```
+
+Those recorded durations persist to
+`.pytest_cache/v/pytest-lanes/lane_durations.json` between runs; deleting
+that file resets scheduling to declared order.
 
 Child processes detect the parent via `PYTEST_LANES_CHILD=1` and run as plain
 pytest. That is the whole trick: each lane gets a clean interpreter, its own
@@ -345,8 +350,9 @@ SMT/hyper-threaded machines consider setting `max_workers` lower.
 - No in-lane parallelism yet: a single slow lane bounds the wall-clock.
 - Max parallelism is `min(subprocess lane count, max_workers)`; lanes
   beyond that queue and wait for a free slot.
-- Queued lanes launch in declared order (`subprocess_order_standard`), so
-  list the slowest lanes first until duration-aware ordering exists.
+- Queued lanes launch longest-first from recorded durations; the first run
+  (no data yet) uses declared order (`subprocess_order_standard`), so
+  listing the slowest lanes first still helps once.
 - Persistent config is INI-only (`pytest.ini`, `tox.ini`, `setup.cfg`); the
   `--lane-def` and `--lanes-auto` flags define lanes with no file, but
   `pyproject.toml` is not supported yet.
@@ -362,12 +368,11 @@ SMT/hyper-threaded machines consider setting `max_workers` lower.
 
 Details and sequencing in [ROADMAP.md](ROADMAP.md). v0.2 shipped the
 bounded worker pool, the trust and debugging tools (`--lanes-explain`, a
-live ETA, and reproduce hints), and zero-config lanes (`--lane-def` and
-`--lanes-auto`, no config file required); the headlines from here, in
-order:
+live ETA, and reproduce hints), zero-config lanes (`--lane-def` and
+`--lanes-auto`, no config file required), and duration-aware scheduling
+(recorded per-lane wall times drive longest-first launch and real ETAs);
+the headline from here:
 
-- **Duration cache** — recorded per-lane wall times feeding longest-first
-  scheduling and real ETAs, replacing today's declared-order queueing.
 - **`--lanes-suggest`** — inspects a suite statically and prints a
   proposed `[pytest-lanes]` config: the differentiator no other tool has.
 

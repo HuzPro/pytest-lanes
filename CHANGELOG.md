@@ -2,6 +2,16 @@
 
 ## 0.2.0 — unreleased
 
+- **Duration cache and longest-first scheduling.** Each orchestrated run
+  records per-lane wall times to
+  `.pytest_cache/v/pytest-lanes/lane_durations.json`. When recorded data
+  exists, queued lanes launch longest-first instead of declared order
+  (lanes without data launch first — an unmeasured lane may be the
+  longest); the "list slowest lanes first" guidance is now only needed
+  for the very first run. Recorded durations also feed the live ETA for
+  lanes still waiting on a worker slot. A missing or corrupt cache file
+  degrades to declared-order scheduling, never an error.
+
 - **Zero-config lanes.** Two ways to get lanes with no INI file:
   `--lane-def name=path[,path...]` (repeatable) defines lanes on the
   command line — CLI definitions take precedence over INI config — and

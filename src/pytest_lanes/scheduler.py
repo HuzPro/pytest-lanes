@@ -11,8 +11,9 @@ durations exist to draw on.
 
 from __future__ import annotations
 
+import math
 import os
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Protocol
 
 import pytest
@@ -48,6 +49,35 @@ class DeclaredOrderPolicy:
 
     def ordered(self, commands: Sequence[LaneCommand]) -> tuple[LaneCommand, ...]:
         return tuple(commands)
+
+
+class LongestFirstPolicy:
+    """Queue lanes with the longest recorded duration first.
+
+    Lanes with no recorded duration launch before recorded ones, keeping
+    their declared relative order — an unmeasured lane may be the longest,
+    and starting it early is the safe scheduling bet.
+    """
+
+    def __init__(self, recorded_durations: Mapping[str, float]) -> None:
+        self._recorded = dict(recorded_durations)
+
+    def ordered(self, commands: Sequence[LaneCommand]) -> tuple[LaneCommand, ...]:
+        return tuple(
+            sorted(
+                commands,
+                key=lambda command: self._recorded.get(command.name, math.inf),
+                reverse=True,
+            )
+        )
+
+
+def ordering_policy_for(
+    recorded_durations: Mapping[str, float],
+) -> LaneOrderingPolicy:
+    if recorded_durations:
+        return LongestFirstPolicy(recorded_durations)
+    return DeclaredOrderPolicy()
 
 
 class LaneWorkQueue:

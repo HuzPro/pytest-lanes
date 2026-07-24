@@ -499,6 +499,45 @@ def _reporter_at_half_progress_with_20s_remaining() -> LaneProgressReporter:
     return reporter
 
 
+def test_estimated_remaining_includes_pending_lanes_with_recorded_durations() -> None:
+    now = {"value": 10.0}
+
+    def fake_clock() -> float:
+        return now["value"]
+
+    reporter = LaneProgressReporter(
+        clock=fake_clock, expected_durations={"queued_db": 30.0}
+    )
+    reporter.register_lanes(["running_lane", "queued_db"])
+    reporter.mark_started("running_lane")
+    now["value"] = 30.0
+    reporter.capture_output_line(
+        "running_lane", "test_file.py .................... [ 50%]"
+    )
+
+    remaining = reporter.estimated_remaining_seconds()
+
+    # 20s left on the running lane plus the queued lane's recorded 30s.
+    assert remaining == 50.0
+
+
+def test_pending_lanes_without_recorded_durations_do_not_inflate_the_estimate() -> None:
+    now = {"value": 10.0}
+
+    def fake_clock() -> float:
+        return now["value"]
+
+    reporter = LaneProgressReporter(clock=fake_clock)
+    reporter.register_lanes(["running_lane", "queued_unknown"])
+    reporter.mark_started("running_lane")
+    now["value"] = 30.0
+    reporter.capture_output_line(
+        "running_lane", "test_file.py .................... [ 50%]"
+    )
+
+    assert reporter.estimated_remaining_seconds() == 20.0
+
+
 def test_plain_snapshot_header_includes_estimated_time_remaining(capsys) -> None:
     reporter = _reporter_at_half_progress_with_20s_remaining()
     display = lane_reporter.PlainLaneDisplay(reporter)
