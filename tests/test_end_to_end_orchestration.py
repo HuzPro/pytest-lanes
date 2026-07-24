@@ -53,7 +53,9 @@ def _write_demo_project(root: Path, extra_index_lines: str = "") -> None:
     )
 
 
-def _run_pytest_in(root: Path) -> subprocess.CompletedProcess[str]:
+def _run_pytest_in(
+    root: Path, extra_args: tuple[str, ...] = ()
+) -> subprocess.CompletedProcess[str]:
     env = {
         key: value
         for key, value in os.environ.items()
@@ -63,7 +65,7 @@ def _run_pytest_in(root: Path) -> subprocess.CompletedProcess[str]:
     # Windows runners with legacy console encodings.
     env["PYTHONIOENCODING"] = "utf-8"
     return subprocess.run(
-        [sys.executable, "-m", "pytest", "."],
+        [sys.executable, "-m", "pytest", ".", *extra_args],
         cwd=root,
         env=env,
         capture_output=True,
@@ -132,3 +134,27 @@ def test_lanes_beyond_max_workers_wait_for_a_free_slot(tmp_path: Path) -> None:
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "FAIL" not in result.stdout
+
+
+def test_lanes_explain_lists_each_test_with_lane_and_rule_without_running(
+    tmp_path: Path,
+) -> None:
+    _write_demo_project(tmp_path)
+    # A test that fails loudly if executed: --lanes-explain must only collect.
+    (tmp_path / "io_tests" / "test_io.py").write_text(
+        "def test_io_lane_runs():\n"
+        "    raise AssertionError('must not execute under --lanes-explain')\n",
+        encoding="utf-8",
+    )
+
+    result = _run_pytest_in(tmp_path, extra_args=("--lanes-explain",))
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (
+        "io_tests/test_io.py::test_io_lane_runs -> io "
+        "(classifier_path_prefixes: io_tests/)"
+    ) in result.stdout
+    assert (
+        "unit_tests/test_unit.py::test_unit_lane_runs -> other (classifier_fallback)"
+    ) in result.stdout
+    assert "2 tests in 2 lanes" in result.stdout

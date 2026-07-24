@@ -6,8 +6,9 @@ Returns one of ``"full"``, ``"standard"``, or ``None``:
 * ``"standard"`` — fan out into the standard lane set only.
 * ``None`` — do not orchestrate; let pytest run as a single invocation. Used
   when this process is itself a child lane subprocess (detected via env var),
-  when the user passed a custom selection (``-k``, ``-m``, ``--lane=``), or
-  when the user pointed at specific paths instead of ``.``.
+  when the user passed a custom selection (``-k``, ``-m``, ``--lane=``),
+  when the user pointed at specific paths instead of ``.``, or when
+  ``--lanes-explain`` asks for the classification listing instead of a run.
 """
 
 from __future__ import annotations
@@ -41,6 +42,9 @@ def orchestration_mode(config: object) -> str | None:
     if has_custom_selection(invocation_args_value):
         return None
     if has_targeted_paths(invocation_args_value):
+        return None
+
+    if _option_enabled(config, "--lanes-explain"):
         return None
 
     if _option_enabled(config, "--lanes-full"):

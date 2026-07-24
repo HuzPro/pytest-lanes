@@ -37,8 +37,28 @@ def relative_test_path(item: object, rootpath: Path) -> str:
         return item_path.as_posix()
 
 
+@dataclass(frozen=True)
+class LaneAssignment:
+    """Which lane claimed an item, via which classifier rule and matched value."""
+
+    lane: LaneSpec
+    rule_kind: str
+    matched_value: str
+
+
 def lane_for_item(item: object, rootpath: Path, lane_config: LaneConfig) -> LaneSpec:
     """Return the lane that owns this test item.
+
+    Delegates to :func:`explain_lane_for_item` so classification has exactly
+    one code path — what ``--lanes-explain`` reports is what runs.
+    """
+    return explain_lane_for_item(item, rootpath, lane_config).lane
+
+
+def explain_lane_for_item(
+    item: object, rootpath: Path, lane_config: LaneConfig
+) -> LaneAssignment:
+    """Return the lane that owns this test item and the rule that claimed it.
 
     Resolution order:
         1. ``classifier_class_base_names`` — promotes container-backed tests
@@ -47,55 +67,69 @@ def lane_for_item(item: object, rootpath: Path, lane_config: LaneConfig) -> Lane
            ``classifier_path_prefixes`` in lane declaration order.
         3. The lane declared with ``classifier_fallback = true``.
     """
-    class_match = _lane_by_class_base_name(item, lane_config)
-    if class_match is not None:
-        return class_match
+    class_assignment = _class_base_name_assignment(item, lane_config)
+    if class_assignment is not None:
+        return class_assignment
 
     relative_path = relative_test_path(item, rootpath)
     for spec in lane_config.lanes:
-        if _classifier_matches_path(spec, relative_path):
-            return spec
+        path_assignment = _path_rule_assignment(spec, relative_path)
+        if path_assignment is not None:
+            return path_assignment
 
     fallback = lane_config.fallback_lane()
     if fallback is not None:
-        return fallback
+        return LaneAssignment(
+            lane=fallback, rule_kind="classifier_fallback", matched_value=""
+        )
 
     raise LookupError(
         f"No lane classified test path '{relative_path}' and no fallback lane is declared."
     )
 
 
-def _lane_by_class_base_name(item: object, lane_config: LaneConfig) -> LaneSpec | None:
+def _class_base_name_assignment(
+    item: object, lane_config: LaneConfig
+) -> LaneAssignment | None:
     test_class = getattr(item, "cls", None)
     if not isinstance(test_class, type):
         return None
 
     mro_names = {base.__name__ for base in test_class.__mro__}
     for spec in lane_config.lanes:
-        if not spec.classifier_class_base_names:
-            continue
-        if any(name in mro_names for name in spec.classifier_class_base_names):
-            return spec
+        for base_name in spec.classifier_class_base_names:
+            if base_name in mro_names:
+                return LaneAssignment(
+                    lane=spec,
+                    rule_kind="classifier_class_base_names",
+                    matched_value=base_name,
+                )
     return None
 
 
-def _classifier_matches_path(spec: LaneSpec, relative_path: str) -> bool:
+def _path_rule_assignment(spec: LaneSpec, relative_path: str) -> LaneAssignment | None:
     if relative_path in spec.classifier_paths:
-        return True
+        return LaneAssignment(
+            lane=spec, rule_kind="classifier_paths", matched_value=relative_path
+        )
 
     if spec.classifier_path_suffix and relative_path.endswith(
         spec.classifier_path_suffix
     ):
-        return True
+        return LaneAssignment(
+            lane=spec,
+            rule_kind="classifier_path_suffix",
+            matched_value=spec.classifier_path_suffix,
+        )
 
     for prefix in spec.classifier_path_prefixes:
         normalized = prefix.rstrip("/")
-        if relative_path == normalized:
-            return True
-        if relative_path.startswith(normalized + "/"):
-            return True
+        if relative_path == normalized or relative_path.startswith(normalized + "/"):
+            return LaneAssignment(
+                lane=spec, rule_kind="classifier_path_prefixes", matched_value=prefix
+            )
 
-    return False
+    return None
 
 
 def build_lane_commands(

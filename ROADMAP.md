@@ -15,21 +15,21 @@ declared `subprocess_order_standard` order, so for now the guidance is to
 list the slowest lanes first. Real longest-first ordering waits for real
 duration data — deliberately not guessed.
 
-## v0.3 — Trust & debugging DX (DX track)
+### Also in v0.2 — trust & debugging DX
 
-Make the lane partition and its failures inspectable without guesswork.
+The lane partition and its failures are now inspectable without guesswork.
 
-- **`--lanes-explain`** — a collect-only listing of each test, the lane it
-  is classified into, and the classifier rule that matched. Inspect the
-  partition without running anything.
-- **ETA in the live display** — wire the existing per-lane duration
-  estimate into the progress display, so a run shows expected time
-  remaining, not only elapsed.
-- **Reproduce hints** — under each failed lane in the summary, print
-  `reproduce: pytest --lane=<name>`, the exact command to re-run that lane
-  in isolation.
+- **`--lanes-explain`** — a collect-only listing of each test, its lane,
+  and the classifier rule that matched. Inspect the partition without
+  running anything; it shares one code path with real classification, so
+  the listing cannot drift.
+- **ETA in the live display** — the per-lane duration estimate now drives
+  an expected-time-remaining readout, not only elapsed time.
+- **Reproduce hints** — each failed lane in the summary is now followed by
+  `reproduce: pytest --lane=<name>`, the exact command to re-run it in
+  isolation.
 
-## v0.4 — Zero-config lanes (DX track)
+## v0.3 — Zero-config lanes (DX track)
 
 Today the plugin requires an INI section. Two additions remove that
 requirement for the common cases:
@@ -50,13 +50,13 @@ requirement for the common cases:
   nothing to write, nothing to maintain, and the directory layout most
   projects already have becomes the partition.
 
-`--lanes-explain` (v0.3) is how you check what `--lanes-auto` actually
-decided before trusting the run.
+`--lanes-explain` (shipped in v0.2) is how you check what `--lanes-auto`
+actually decided before trusting the run.
 
 Non-goal: positional syntax like `pytest tests/acceptance:lane-name` —
 the colon collides with pytest's `file.py::test` node-id convention.
 
-## v0.5 — Duration cache & longest-first scheduling (speed track)
+## v0.4 — Duration cache & longest-first scheduling (speed track)
 
 Today queued lanes launch in declared order. Recorded timing turns that
 into a real schedule:
@@ -86,7 +86,7 @@ Then, as a later opt-in on top of the cache:
   opt-in keeps the "the only concurrency is the concurrency you
   declared" property intact.
 
-## v0.6 — `--lanes-suggest` (DX track)
+## v0.5 — `--lanes-suggest` (DX track)
 
 Static suggestion of a lane config for a suite that has none — the
 differentiator none of the prior-art tools offer. v1 does no execution; it

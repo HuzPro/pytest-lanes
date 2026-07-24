@@ -162,6 +162,7 @@ Then:
 pytest .                          # fan out: one subprocess per lane, in parallel
 pytest . --lanes-full             # standard lanes + every optional lane
 pytest . --lanes-max-workers=2    # cap concurrent lanes (default: CPU count)
+pytest . --lanes-explain          # show which lane claims each test, run nothing
 pytest --lane=postgres            # one lane, in-process, no fanout
 pytest --lane=postgres,timescale  # multiple lanes, in-process
 pytest -m unit                    # marker-only run; orchestration steps aside
@@ -245,7 +246,30 @@ plugin entirely (useful for benchmarking the serial baseline).
 
 Set `PYTEST_LANES_SHOW_OUTPUT=1` to stream every lane's raw output live in
 addition to the progress table. A failing lane's full output is always
-printed after the run.
+printed after the run, and each failed row in the Lane Test Summary is
+followed by a `reproduce: pytest --lane=<name>` line — the exact command
+to re-run that lane in isolation for debugging.
+
+To see the partition before committing to a run, `--lanes-explain`
+prints one line per collected test — the lane that claims it and the
+classifier rule that matched — then exits without running anything.
+Classification and explanation share one code path, so the listing
+cannot drift from what a real run would do:
+
+```
+$ pytest . --lanes-explain
+
+Lane classification
+io_tests/test_simulated_container.py::test_simulated_container_query_one -> slow_io (classifier_path_prefixes: io_tests/)
+io_tests/test_simulated_container.py::test_simulated_container_query_two -> slow_io (classifier_path_prefixes: io_tests/)
+unit_tests/test_fast_units.py::test_unit_alpha -> other (classifier_fallback)
+unit_tests/test_fast_units.py::test_unit_beta -> other (classifier_fallback)
+4 tests in 2 lanes
+```
+
+It inspects whatever would be collected, so it composes with the usual
+`-k`/`-m`/path selection. (Needs a `[pytest-lanes]` config — with none,
+it reports a usage error rather than guessing.)
 
 ## When to use it (and when not to)
 
@@ -309,12 +333,11 @@ SMT/hyper-threaded machines consider setting `max_workers` lower.
 
 ## Roadmap
 
-Details and sequencing in [ROADMAP.md](ROADMAP.md). The bounded worker
-pool landed in v0.2; the headlines from here, in order:
+Details and sequencing in [ROADMAP.md](ROADMAP.md). v0.2 shipped the
+bounded worker pool plus the trust and debugging tools
+(`--lanes-explain`, a live ETA, and reproduce hints); the headlines
+from here, in order:
 
-- **Trust & debugging DX** — `--lanes-explain` showing which lane claims
-  each test and why, an ETA in the live display, and a reproduce hint
-  under each failed lane.
 - **Zero-config lanes** — `--lane-def name=path` for ad-hoc/tox usage and
   `--lanes-auto` (one lane per test directory) for true drop-in use with
   no config file at all.

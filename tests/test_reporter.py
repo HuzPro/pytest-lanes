@@ -446,3 +446,75 @@ def test_rich_display_print_summary_adds_blank_line_before_title(monkeypatch) ->
 
     assert printed[0] == ""
     assert printed[1] == f"[bold cyan]{SUMMARY_TITLE}[/]"
+
+
+def test_summary_prints_reproduce_hint_for_each_failed_lane() -> None:
+    reporter = LaneProgressReporter(clock=lambda: 0.0)
+    reporter.register_lanes(["postgres", "other"])
+    reporter.mark_started("postgres")
+    reporter.mark_started("other")
+    reporter.mark_finished("postgres", exit_code=1)
+    reporter.mark_finished("other", exit_code=0)
+
+    summary = reporter.build_summary(wall_seconds=1.0)
+
+    assert "reproduce: pytest --lane=postgres" in summary
+    assert "reproduce: pytest --lane=other" not in summary
+
+
+def test_rich_summary_prints_reproduce_hint_for_failed_lane(monkeypatch) -> None:
+    if not lane_reporter.HAS_RICH:
+        pytest.skip("rich is not installed")
+
+    reporter = LaneProgressReporter(clock=lambda: 0.0)
+    reporter.register_lanes(["postgres"])
+    reporter.mark_started("postgres")
+    reporter.mark_finished("postgres", exit_code=1)
+
+    printed: list[str] = []
+
+    class FakeConsole:
+        def print(self, *args: object, **kwargs: object) -> None:
+            printed.append(str(args[0]) if args else "")
+
+    monkeypatch.setattr(lane_reporter, "Console", FakeConsole)
+
+    display = lane_reporter.RichLaneDisplay(reporter)
+    display.print_summary(reporter, wall_seconds=1.0)
+
+    assert any("reproduce:" in line and "--lane=postgres" in line for line in printed)
+
+
+def _reporter_at_half_progress_with_20s_remaining() -> LaneProgressReporter:
+    now = {"value": 10.0}
+
+    def fake_clock() -> float:
+        return now["value"]
+
+    reporter = LaneProgressReporter(clock=fake_clock)
+    reporter.register_lanes(["other"])
+    reporter.mark_started("other")
+    now["value"] = 30.0
+    reporter.capture_output_line("other", "test_file.py .................... [ 50%]")
+    return reporter
+
+
+def test_plain_snapshot_header_includes_estimated_time_remaining(capsys) -> None:
+    reporter = _reporter_at_half_progress_with_20s_remaining()
+    display = lane_reporter.PlainLaneDisplay(reporter)
+
+    display.refresh()
+
+    assert "Lane status snapshot (eta 20.00s)" in capsys.readouterr().out
+
+
+def test_rich_table_caption_shows_estimated_time_remaining() -> None:
+    if not lane_reporter.HAS_RICH:
+        pytest.skip("rich is not installed")
+
+    reporter = _reporter_at_half_progress_with_20s_remaining()
+    display = lane_reporter.RichLaneDisplay(reporter)
+
+    table = display._build_table()
+
+    assert "eta 20.00s" in str(table.caption)

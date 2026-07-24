@@ -11,11 +11,14 @@ from __future__ import annotations
 import os
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
+
+import pytest
 
 from pytest_lanes import hooks
 from pytest_lanes.constants import TEST_ORCHESTRATION_CHILD_ENV
-from tests.test_lane_assignment import _example_lane_config
+from tests.test_lane_assignment import _example_lane_config, _FakeItem
 
 
 class _FakeConfig:
@@ -26,11 +29,13 @@ class _FakeConfig:
         lane: str | None = None,
         invocation_args: tuple[str, ...] = (),
         max_workers: int | None = None,
+        explain: bool = False,
     ) -> None:
         self.rootpath = rootpath
         self._full = full
         self._lane = lane
         self._max_workers = max_workers
+        self._explain = explain
         self.invocation_params = type("InvocationParams", (), {"args": invocation_args})
 
     def getoption(self, option_name: str) -> object:
@@ -40,6 +45,8 @@ class _FakeConfig:
             return self._lane
         if option_name == "--lanes-max-workers":
             return self._max_workers
+        if option_name == "--lanes-explain":
+            return self._explain
         return False
 
 
@@ -180,3 +187,49 @@ def test_ini_max_workers_is_used_when_no_cli_flag_is_passed() -> None:
         hooks.pytest_cmdline_main(config)
 
     assert mock_run.call_args.kwargs["max_workers"] == 4
+
+
+def test_lanes_explain_prints_classification_for_collected_items(
+    capsys, monkeypatch
+) -> None:
+    monkeypatch.setattr(hooks, "_lane_config", _example_lane_config())
+    monkeypatch.setattr(hooks, "_rootpath", Path("C:/repo"))
+    item = _FakeItem(
+        path=Path("C:/repo/backend/http_adapter/tests/test_routes.py"),
+        nodeid="backend/http_adapter/tests/test_routes.py::test_get",
+    )
+    session = SimpleNamespace(
+        config=_FakeConfig(rootpath=Path("C:/repo"), explain=True), items=[item]
+    )
+
+    hooks.pytest_collection_finish(session)
+
+    out = capsys.readouterr().out
+    assert (
+        "backend/http_adapter/tests/test_routes.py::test_get -> http_adapter "
+        "(classifier_path_prefixes: backend/http_adapter/tests/)"
+    ) in out
+
+
+def test_lanes_explain_without_lane_config_raises_usage_error(monkeypatch) -> None:
+    monkeypatch.setattr(hooks, "_lane_config", None)
+    session = SimpleNamespace(
+        config=_FakeConfig(rootpath=Path("C:/repo"), explain=True), items=[]
+    )
+
+    with pytest.raises(pytest.UsageError, match="--lanes-explain"):
+        hooks.pytest_collection_finish(session)
+
+
+def test_lanes_explain_skips_the_test_run_loop() -> None:
+    session = SimpleNamespace(
+        config=_FakeConfig(rootpath=Path("C:/repo"), explain=True)
+    )
+
+    assert hooks.pytest_runtestloop(session) is True
+
+
+def test_run_loop_proceeds_normally_without_lanes_explain() -> None:
+    session = SimpleNamespace(config=_FakeConfig(rootpath=Path("C:/repo")))
+
+    assert hooks.pytest_runtestloop(session) is None

@@ -31,6 +31,7 @@ import pytest
 
 from pytest_lanes.config import LaneConfig, load_lane_config_or_none
 from pytest_lanes.executor import run_lane_commands
+from pytest_lanes.explain import format_lane_explanation
 from pytest_lanes.invocation import (
     invocation_args,
     passthrough_args_for_lanes,
@@ -41,7 +42,7 @@ from pytest_lanes.lane_selection import (
     parse_lane_selection,
     validate_lane_names,
 )
-from pytest_lanes.lanes import build_lane_commands, lane_for_item
+from pytest_lanes.lanes import build_lane_commands, explain_lane_for_item, lane_for_item
 from pytest_lanes.mode import orchestration_mode
 from pytest_lanes.scheduler import detected_cpu_count, resolve_max_workers
 
@@ -80,6 +81,15 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help=(
             "Maximum lane subprocesses running concurrently; remaining lanes "
             "queue in declared order (default: CPU count)."
+        ),
+    )
+    group.addoption(
+        "--lanes-explain",
+        action="store_true",
+        default=False,
+        help=(
+            "List each collected test, its lane, and the classifier rule "
+            "that claimed it, then exit without running any tests."
         ),
     )
 
@@ -152,6 +162,37 @@ def pytest_configure(config: pytest.Config) -> None:
         seen.add(ignore_path)
         merged_ignore.append(ignore_path)
     config.option.ignore = merged_ignore
+
+
+def pytest_collection_finish(session: pytest.Session) -> None:
+    """Print the lane-classification listing when ``--lanes-explain`` is set."""
+    if not session.config.getoption("--lanes-explain"):
+        return
+
+    if _lane_config is None or _rootpath is None:
+        raise pytest.UsageError(
+            "--lanes-explain was passed but no [pytest-lanes] configuration "
+            "was found in pytest.ini, tox.ini, or setup.cfg at the rootdir."
+        )
+
+    entries = [
+        (item.nodeid, explain_lane_for_item(item, _rootpath, _lane_config))
+        for item in session.items
+    ]
+    print(format_lane_explanation(entries))
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtestloop(session: pytest.Session) -> bool | None:
+    """Skip test execution entirely for ``--lanes-explain`` runs.
+
+    Returning ``True`` short-circuits pytest's run loop after collection —
+    the same mechanism ``--collect-only`` uses — without triggering the
+    terminal reporter's collect-only tree output.
+    """
+    if session.config.getoption("--lanes-explain"):
+        return True
+    return None
 
 
 def pytest_runtest_setup(item: pytest.Item) -> None:

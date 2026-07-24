@@ -129,6 +129,8 @@ def format_orchestration_summary(
         lane_name = result["name"].ljust(max_lane_name_width)
         status = "PASS" if result["exit_code"] == 0 else "FAIL"
         lines.append(f"> {lane_name} : {status} ({result['duration']:.2f}s)")
+        if result["exit_code"] != 0:
+            lines.append(f"  reproduce: pytest --lane={result['name']}")
 
     lines.append(f"Parallelism ratio: {parallelism_ratio:.2f}x")
 
@@ -426,7 +428,8 @@ class PlainLaneDisplay:
 
         self._last_plain_print_at = now
         rows = self._reporter.live_rows()
-        print("Lane status snapshot")
+        eta = _format_seconds(self._reporter.estimated_remaining_seconds())
+        print(f"Lane status snapshot (eta {eta})")
         for row in rows:
             print(
                 "- "
@@ -471,6 +474,10 @@ class RichLaneDisplay:
                 f"[{status_style}]{status_text}[/] [white]({result['duration']:.2f}s)[/]"
             )
             self._console.print(lane_line)
+            if not status_is_pass:
+                self._console.print(
+                    f"  [dim]reproduce:[/] pytest --lane={result['name']}"
+                )
 
     def _print_failed_tests_section(self, failed_lines: list[str]) -> None:
         if not failed_lines:
@@ -545,8 +552,13 @@ class RichLaneDisplay:
 
         self._live.update(self._build_table())
 
-    def _create_table_schema(self) -> Table:
-        table = Table(title="[bold cyan]Lanes[/]", show_edge=True, box=box.HEAVY)
+    def _create_table_schema(self, caption: str) -> Table:
+        table = Table(
+            title="[bold cyan]Lanes[/]",
+            caption=caption,
+            show_edge=True,
+            box=box.HEAVY,
+        )
         table.add_column("Type")
         table.add_column("Status")
         table.add_column("Progress")
@@ -594,7 +606,8 @@ class RichLaneDisplay:
         }
 
     def _build_table(self) -> object:
-        table = self._create_table_schema()
+        eta = _format_seconds(self._reporter.estimated_remaining_seconds())
+        table = self._create_table_schema(caption=f"eta {eta}")
         for row in self._reporter.live_rows():
             cells = self._format_row_cells(row)
             table.add_row(

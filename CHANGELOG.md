@@ -2,6 +2,18 @@
 
 ## 0.2.0 — unreleased
 
+- **`--lanes-explain`.** Lists each collected test, the lane that claimed
+  it, and the classifier rule that matched (e.g.
+  `io_tests/test_io.py::test_x -> io (classifier_path_prefixes: io_tests/)`),
+  then exits without running anything. Classification and explanation share
+  a single code path, so the listing can never drift from what actually
+  runs.
+- **ETA in the live display.** The progress table (rich) and the plain
+  snapshot header now show estimated time remaining, from per-lane progress
+  percentages and completed-lane durations.
+- **Reproduce hints.** Each failed lane in the summary now prints
+  `reproduce: pytest --lane=<name>` — the exact command to re-run that lane
+  in isolation, in-process.
 - **Bounded worker pool.** Lanes no longer all spawn at once: at most
   `max_workers` lane subprocesses run concurrently (INI key `max_workers`
   under `[pytest-lanes]`, CLI flag `--lanes-max-workers=N`; default: CPU

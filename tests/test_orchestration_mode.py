@@ -18,14 +18,18 @@ class _FakeConfig:
     def __init__(
         self,
         full: bool = False,
+        explain: bool = False,
         invocation_args: tuple[str, ...] = (),
     ) -> None:
         self._full = full
+        self._explain = explain
         self.invocation_params = type("InvocationParams", (), {"args": invocation_args})
 
     def getoption(self, option_name: str) -> object:
         if option_name == "--lanes-full":
             return self._full
+        if option_name == "--lanes-explain":
+            return self._explain
         return False
 
 
@@ -65,6 +69,13 @@ def test_keyword_filter_bypasses_orchestration() -> None:
 
 def test_lane_flag_bypasses_orchestration() -> None:
     config = _FakeConfig(invocation_args=(".", "--lane=postgres"))
+
+    with _without_child_env_var():
+        assert orchestration_mode(config) is None
+
+
+def test_lanes_explain_flag_bypasses_orchestration() -> None:
+    config = _FakeConfig(explain=True, invocation_args=(".", "--lanes-explain"))
 
     with _without_child_env_var():
         assert orchestration_mode(config) is None
