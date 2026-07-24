@@ -300,6 +300,51 @@ marker = unit
     assert config.max_workers is None
 
 
+def test_loader_parses_lane_numprocesses_for_in_lane_xdist(tmp_path: Path) -> None:
+    ini = _write_ini(
+        tmp_path,
+        """
+[pytest]
+markers =
+\tunit: unit tests
+
+[pytest-lanes]
+lanes = other
+
+[pytest-lanes:other]
+marker = unit
+lane_numprocesses = 4
+""",
+    )
+
+    config = load_lane_config(ini)
+
+    lane = config.lane_by_name("other")
+    assert lane is not None
+    assert lane.lane_numprocesses == 4
+
+
+def test_loader_rejects_non_positive_lane_numprocesses(tmp_path: Path) -> None:
+    ini = _write_ini(
+        tmp_path,
+        """
+[pytest]
+markers =
+\tunit: unit tests
+
+[pytest-lanes]
+lanes = other
+
+[pytest-lanes:other]
+marker = unit
+lane_numprocesses = 0
+""",
+    )
+
+    with pytest.raises(LaneConfigError, match="lane_numprocesses"):
+        load_lane_config(ini)
+
+
 def test_loader_raises_when_max_workers_is_not_an_integer(tmp_path: Path) -> None:
     ini = _write_ini(
         tmp_path,

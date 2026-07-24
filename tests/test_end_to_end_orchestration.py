@@ -200,6 +200,57 @@ def test_lane_defs_orchestrate_without_any_config_file(tmp_path: Path) -> None:
     assert "FAIL" not in result.stdout
 
 
+_XDIST_LANE_INI = """\
+[pytest]
+markers =
+\tio: simulated infrastructure-heavy tests
+\tunit: fast unit tests
+
+[pytest-lanes]
+lanes = io other
+subprocess_order_standard = io other
+
+[pytest-lanes:io]
+marker = io
+classifier_path_prefixes = io_tests/
+subprocess_paths = io_tests
+lane_numprocesses = 2
+
+[pytest-lanes:other]
+marker = unit
+classifier_fallback = true
+subprocess_ignore_other_lanes = true
+"""
+
+
+def test_lane_numprocesses_runs_that_lane_under_xdist(tmp_path: Path) -> None:
+    (tmp_path / "pytest.ini").write_text(_XDIST_LANE_INI, encoding="utf-8")
+    io_dir = tmp_path / "io_tests"
+    io_dir.mkdir()
+    for index in range(2):
+        (io_dir / f"test_io_{index}.py").write_text(
+            f"def test_io_{index}():\n    assert True\n", encoding="utf-8"
+        )
+    unit_dir = tmp_path / "unit_tests"
+    unit_dir.mkdir()
+    (unit_dir / "test_unit.py").write_text(
+        "def test_unit_lane_runs():\n    assert True\n", encoding="utf-8"
+    )
+
+    result = _run_pytest_in(tmp_path)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Lane Test Summary" in result.stdout
+    assert "FAIL" not in result.stdout
+    # The xdist controller receives every worker's reports, so per-file
+    # durations still record for the spread lane.
+    durations_file = (
+        tmp_path / ".pytest_cache" / "v" / "pytest-lanes" / "lane_durations.json"
+    )
+    recorded = json.loads(durations_file.read_text(encoding="utf-8"))
+    assert "io_tests/test_io_0.py" in recorded["io"]["files"]
+
+
 def test_lanes_suggest_prints_reviewable_ini_for_an_unconfigured_project(
     tmp_path: Path,
 ) -> None:

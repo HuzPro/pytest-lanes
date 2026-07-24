@@ -156,6 +156,11 @@ def build_lane_commands(
         # `pytest-cache-files-*` dirs on Windows), and parallel writers
         # would clobber `lastfailed` last-writer-wins regardless.
         args: list[str] = [*passthrough_args, "--color=no", "-p", "no:cacheprovider"]
+        if spec.lane_numprocesses is not None:
+            # In-lane xdist: spread this homogeneous lane's files across
+            # workers. loadfile keeps each file on one worker, preserving
+            # in-file ordering — the lane opted into file-level spreading.
+            args.extend(["-n", str(spec.lane_numprocesses), "--dist", "loadfile"])
         args.extend(spec.subprocess_paths)
         args.extend(spec.subprocess_nodeids)
         for ignore_path in spec.subprocess_ignore:

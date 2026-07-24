@@ -24,6 +24,7 @@ a no-op and pytest behaves as if the plugin were not installed.
 
 from __future__ import annotations
 
+import importlib.util
 import os
 from pathlib import Path
 
@@ -34,6 +35,7 @@ from pytest_lanes.config import LaneConfig
 from pytest_lanes.constants import (
     CHILD_DURATIONS_OUT_ENV,
     TEST_ORCHESTRATION_CHILD_ENV,
+    XDIST_WORKER_ENV,
 )
 from pytest_lanes.durations import duration_store_for_rootdir
 from pytest_lanes.executor import run_lane_commands
@@ -52,13 +54,34 @@ from pytest_lanes.lanes import build_lane_commands, explain_lane_for_item, lane_
 from pytest_lanes.mode import orchestration_mode
 from pytest_lanes.recording import ChildRunRecorder
 from pytest_lanes.scheduler import detected_cpu_count, resolve_max_workers
-from pytest_lanes.suggest import format_lane_suggestion, scan_project
+from pytest_lanes.suggest import (
+    format_lane_suggestion,
+    format_split_advice,
+    scan_project,
+)
 
 ENV_OVERRIDE_ATTR = "_pytest_lanes_env_overrides"
 
 _lane_config: LaneConfig | None = None
 _rootpath: Path | None = None
 _child_recorder: ChildRunRecorder | None = None
+
+
+def _xdist_is_available() -> bool:
+    return importlib.util.find_spec("xdist") is not None
+
+
+def _ensure_xdist_available_for(lane_config: LaneConfig) -> None:
+    lanes_needing_xdist = [
+        spec.name for spec in lane_config.lanes if spec.lane_numprocesses is not None
+    ]
+    if not lanes_needing_xdist or _xdist_is_available():
+        return
+    raise pytest.UsageError(
+        "lane_numprocesses is set on lane(s) "
+        f"{', '.join(lanes_needing_xdist)} but pytest-xdist is not installed. "
+        "Install it (pip install pytest-xdist) or remove the setting."
+    )
 
 
 def _load_lane_config_for(config: pytest.Config) -> LaneConfig | None:
@@ -140,7 +163,13 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 def pytest_cmdline_main(config: pytest.Config) -> int | None:
     is_child_process = os.environ.get(TEST_ORCHESTRATION_CHILD_ENV) == "1"
     if config.getoption("--lanes-suggest") and not is_child_process:
-        print(format_lane_suggestion(scan_project(Path(str(config.rootpath)))))
+        rootpath = Path(str(config.rootpath))
+        print(format_lane_suggestion(scan_project(rootpath)))
+        advice = format_split_advice(
+            duration_store_for_rootdir(rootpath).recorded_lane_records()
+        )
+        if advice:
+            print(f"\n{advice}")
         return 0
 
     mode = orchestration_mode(config)
@@ -155,6 +184,8 @@ def pytest_cmdline_main(config: pytest.Config) -> int | None:
                 "subdirectory partition; running plain pytest."
             )
         return None
+
+    _ensure_xdist_available_for(lane_config)
 
     args = invocation_args(config)
     passthrough = passthrough_args_for_lanes(args)
@@ -232,6 +263,11 @@ def pytest_sessionstart(session: pytest.Session) -> None:
 
     output_path = os.environ.get(CHILD_DURATIONS_OUT_ENV)
     if not output_path:
+        return
+    if os.environ.get(XDIST_WORKER_ENV):
+        # In-lane xdist: only the lane's controller process records — it
+        # receives every worker's test reports; workers racing on the same
+        # output file would corrupt it.
         return
     _child_recorder = ChildRunRecorder(output_path=Path(output_path))
     _child_recorder.mark_session_start()

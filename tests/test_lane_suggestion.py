@@ -10,7 +10,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pytest_lanes.suggest import format_lane_suggestion, scan_project
+from pytest_lanes.durations import LaneRecord
+from pytest_lanes.suggest import (
+    format_lane_suggestion,
+    format_split_advice,
+    scan_project,
+)
 
 _CONFTEST_WITH_INFRA = """\
 import pytest
@@ -116,3 +121,48 @@ def test_suggestion_without_a_partition_says_so_instead_of_guessing(
 
     assert "no test-bearing subdirectory partition" in suggestion
     assert "[pytest-lanes]" not in suggestion
+
+
+def test_split_advice_halves_the_longest_lane_by_recorded_file_times() -> None:
+    records = {
+        "db": LaneRecord(
+            total=35.0,
+            startup=6.0,
+            collect=1.0,
+            files=(
+                ("db/test_a.py", 10.0),
+                ("db/test_b.py", 4.0),
+                ("db/test_c.py", 8.0),
+                ("db/test_d.py", 6.0),
+            ),
+        ),
+        "units": LaneRecord(total=5.0, files=(("u/test_u.py", 5.0),)),
+    }
+
+    advice = format_split_advice(records)
+
+    assert "Split advice" in advice
+    assert "db" in advice
+    # Contiguous halves in recorded order: [a, b] = 14s | [c, d] = 14s.
+    assert "db/test_a.py db/test_b.py" in advice
+    assert "db/test_c.py db/test_d.py" in advice
+    assert "fixed cost" in advice
+
+
+def test_no_split_advice_when_fixed_cost_dominates() -> None:
+    records = {
+        "db": LaneRecord(
+            total=30.0,
+            startup=20.0,
+            collect=2.0,
+            files=(("db/test_a.py", 4.0), ("db/test_b.py", 4.0)),
+        ),
+    }
+
+    assert format_split_advice(records) == ""
+
+
+def test_no_split_advice_without_at_least_two_recorded_files() -> None:
+    records = {"db": LaneRecord(total=30.0, files=(("db/test_a.py", 30.0),))}
+
+    assert format_split_advice(records) == ""

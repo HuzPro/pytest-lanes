@@ -42,6 +42,7 @@ class LaneSpec:
     subprocess_ignore_other_lanes: bool = False
     subprocess_env_set: tuple[tuple[str, str], ...] = ()
     tolerate_no_tests: bool = False
+    lane_numprocesses: int | None = None
 
 
 @dataclass(frozen=True)
@@ -219,7 +220,27 @@ def _parse_lane(
             section, "subprocess_ignore_other_lanes", fallback=False
         ),
         subprocess_env_set=env_set_pairs,
+        lane_numprocesses=_parse_lane_numprocesses(parser, section, name),
     )
+
+
+def _parse_lane_numprocesses(
+    parser: configparser.ConfigParser, section: str, lane_name: str
+) -> int | None:
+    text = parser.get(section, "lane_numprocesses", fallback="").strip()
+    if not text:
+        return None
+    try:
+        value = int(text)
+    except ValueError as error:
+        raise LaneConfigError(
+            f"Lane '{lane_name}': lane_numprocesses must be an integer (got '{text}')."
+        ) from error
+    if value <= 0:
+        raise LaneConfigError(
+            f"Lane '{lane_name}': lane_numprocesses must be positive (got {value})."
+        )
+    return value
 
 
 def _tokens(text: str) -> tuple[str, ...]:

@@ -264,6 +264,84 @@ def test_lanes_suggest_prints_a_reviewable_config_and_runs_nothing(
     assert "[pytest-lanes:db_tests]" in out
 
 
+def test_lane_numprocesses_without_xdist_installed_is_a_usage_error(
+    tmp_path: Path,
+) -> None:
+    from pytest_lanes.config import LaneConfig, LaneSpec
+
+    lane_config = LaneConfig(
+        lanes=(
+            LaneSpec(
+                name="units",
+                marker="unit",
+                subprocess_paths=("u",),
+                lane_numprocesses=2,
+            ),
+        ),
+        subprocess_order_standard=("units",),
+    )
+    config = _FakeConfig(rootpath=tmp_path, invocation_args=(".",))
+
+    with (
+        _without_child_env_var(),
+        patch.object(hooks, "run_lane_commands") as mock_run,
+        patch.object(hooks, "_load_lane_config_for", return_value=lane_config),
+        patch.object(hooks, "_xdist_is_available", return_value=False),
+        pytest.raises(pytest.UsageError, match="pytest-xdist"),
+    ):
+        hooks.pytest_cmdline_main(config)
+
+    mock_run.assert_not_called()
+
+
+def test_xdist_worker_processes_never_start_their_own_recorder(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(hooks, "_child_recorder", None)
+    monkeypatch.setenv("PYTEST_LANES_DURATIONS_OUT", str(tmp_path / "out.json"))
+    monkeypatch.setenv("PYTEST_XDIST_WORKER", "gw0")
+
+    hooks.pytest_sessionstart(SimpleNamespace(config=None))
+
+    assert hooks._child_recorder is None
+
+
+def test_lanes_suggest_appends_split_advice_when_recorded_data_exists(
+    tmp_path: Path, capsys
+) -> None:
+    from pytest_lanes.durations import LaneRecord, duration_store_for_rootdir
+
+    for directory in ("db_tests", "unit_tests"):
+        (tmp_path / directory).mkdir()
+        (tmp_path / directory / "test_sample.py").write_text(
+            "def test_ok():\n    assert True\n", encoding="utf-8"
+        )
+    duration_store_for_rootdir(tmp_path).record(
+        {
+            "db_tests": LaneRecord(
+                total=30.0,
+                startup=2.0,
+                collect=1.0,
+                files=(("db_tests/test_a.py", 14.0), ("db_tests/test_b.py", 13.0)),
+            )
+        }
+    )
+    config = _FakeConfig(
+        rootpath=tmp_path, invocation_args=(".", "--lanes-suggest"), suggest=True
+    )
+
+    with (
+        _without_child_env_var(),
+        patch.object(hooks, "run_lane_commands"),
+    ):
+        result = hooks.pytest_cmdline_main(config)
+
+    assert result == 0
+    out = capsys.readouterr().out
+    assert "Split advice" in out
+    assert "db_tests/test_a.py" in out
+
+
 def test_lanes_explain_prints_classification_for_collected_items(
     capsys, monkeypatch
 ) -> None:

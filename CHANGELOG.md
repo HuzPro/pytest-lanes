@@ -2,6 +2,19 @@
 
 ## 0.2.0 — unreleased
 
+- **In-lane xdist (`lane_numprocesses`).** A homogeneous lane can opt in
+  to spreading its files across xdist workers (`-n K --dist loadfile`
+  inside that lane's subprocess only). Requires pytest-xdist (a clear
+  usage error otherwise). Inside such a lane, per-worker environment
+  duplication and concurrency-safety obligations return — that is the
+  lane's explicit trade. Per-file durations still record via the xdist
+  controller.
+- **`--lanes-suggest` split advice.** With recorded per-file data, the
+  suggestion output now includes advice for splitting the longest lane
+  into two declared lanes — balanced contiguous halves with projected
+  times — shown only when half the lane's test time exceeds its measured
+  fixed cost (startup + collect), which every new lane re-pays.
+
 - **Per-file run measurement (durations v2).** Lane children now measure
   their own runs — per-file test durations, `collect` (session start to
   end of collection), and `startup` (end of collection to first test,

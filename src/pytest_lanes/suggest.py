@@ -11,6 +11,7 @@ fixture-request graph is deliberately out of scope.
 from __future__ import annotations
 
 import ast
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -20,6 +21,7 @@ from pytest_lanes.adhoc import (
     _has_root_level_test_files,
     _is_lane_candidate,
 )
+from pytest_lanes.durations import LaneRecord
 
 _INFRASTRUCTURE_IMPORT_ROOTS = frozenset(
     {
@@ -186,6 +188,75 @@ def format_lane_suggestion(scan: ProjectScan) -> str:
     ]
 
     return "\n".join(lines)
+
+
+def format_split_advice(records: Mapping[str, LaneRecord]) -> str:
+    """Advise splitting the longest recorded lane into two declared lanes.
+
+    Empty string when no lane is worth splitting: the advice only appears
+    when half the lane's test time exceeds its fixed cost (startup +
+    collect), which every new lane re-pays on every run.
+    """
+    candidate = _longest_splittable_lane(records)
+    if candidate is None:
+        return ""
+    name, record = candidate
+
+    tests_seconds = sum(seconds for _, seconds in record.files)
+    fixed_seconds = record.startup + record.collect
+    if tests_seconds / 2 <= fixed_seconds:
+        return ""
+
+    first_half, second_half = _contiguous_halves(record.files)
+    lines = [
+        "Split advice (from recorded durations)",
+        (
+            f"{name}: {tests_seconds:.1f}s of tests across "
+            f"{len(record.files)} files, {fixed_seconds:.1f}s fixed cost "
+            "(startup + collect)"
+        ),
+        f"  lane 1 (~{_half_seconds(first_half):.1f}s): "
+        + " ".join(path for path, _ in first_half),
+        f"  lane 2 (~{_half_seconds(second_half):.1f}s): "
+        + " ".join(path for path, _ in second_half),
+        (
+            "  note: each declared lane re-pays the fixed cost every run; "
+            "verify any new partition with --lanes-explain"
+        ),
+    ]
+    return "\n".join(lines)
+
+
+def _longest_splittable_lane(
+    records: Mapping[str, LaneRecord],
+) -> tuple[str, LaneRecord] | None:
+    splittable = [
+        (name, record) for name, record in records.items() if len(record.files) >= 2
+    ]
+    if not splittable:
+        return None
+    return max(splittable, key=lambda entry: entry[1].total)
+
+
+def _contiguous_halves(
+    files: tuple[tuple[str, float], ...],
+) -> tuple[tuple[tuple[str, float], ...], tuple[tuple[str, float], ...]]:
+    """Cut the file list at the point that best balances the two halves."""
+    total = sum(seconds for _, seconds in files)
+    best_cut = 1
+    best_imbalance = float("inf")
+    running = 0.0
+    for index, (_, seconds) in enumerate(files[:-1], start=1):
+        running += seconds
+        imbalance = abs(running - (total - running))
+        if imbalance < best_imbalance:
+            best_imbalance = imbalance
+            best_cut = index
+    return files[:best_cut], files[best_cut:]
+
+
+def _half_seconds(half: tuple[tuple[str, float], ...]) -> float:
+    return sum(seconds for _, seconds in half)
 
 
 def _slowest_first_heuristic(

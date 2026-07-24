@@ -152,6 +152,32 @@ def test_every_lane_child_disables_the_cacheprovider() -> None:
         assert command.args[plugin_flag_index + 1] == "no:cacheprovider"
 
 
+def test_lane_numprocesses_adds_xdist_flags_to_that_lane_only() -> None:
+    config = LaneConfig(
+        lanes=(
+            LaneSpec(
+                name="units",
+                marker="unit",
+                subprocess_paths=("unit_tests",),
+                lane_numprocesses=4,
+            ),
+            LaneSpec(name="other", marker="unit", classifier_fallback=True),
+        ),
+        subprocess_order_standard=("units", "other"),
+    )
+
+    commands = build_lane_commands(
+        mode="standard", passthrough_args=(), lane_config=config
+    )
+
+    units_args = _argv_of(commands, "units")
+    numprocesses_index = units_args.index("-n")
+    assert units_args[numprocesses_index + 1] == "4"
+    assert "--dist" in units_args
+    assert units_args[units_args.index("--dist") + 1] == "loadfile"
+    assert "-n" not in _argv_of(commands, "other")
+
+
 def test_empty_lane_config_with_no_subprocess_lanes_returns_empty_command_list() -> (
     None
 ):
