@@ -12,9 +12,7 @@ from pathlib import Path
 import pytest
 
 from pytest_lanes.config import (
-    LaneConfig,
     LaneConfigError,
-    LaneSpec,
     load_lane_config,
 )
 
@@ -129,9 +127,7 @@ subprocess_env_set = BUILD_OUTPUT_DIR=build/full-build-verification
 
     assert fbv is not None
     assert fbv.classifier_paths == ("test_full_build_verification.py",)
-    assert fbv.subprocess_nodeids == (
-        "test_full_build_verification.py::test_one",
-    )
+    assert fbv.subprocess_nodeids == ("test_full_build_verification.py::test_one",)
     assert fbv.subprocess_env_set == (
         ("BUILD_OUTPUT_DIR", "build/full-build-verification"),
     )
@@ -259,3 +255,67 @@ marker = unit
         "fbv",
         "other",
     ]
+
+
+def test_loader_parses_max_workers_from_the_index_section(tmp_path: Path) -> None:
+    ini = _write_ini(
+        tmp_path,
+        """
+[pytest]
+markers =
+\tunit: unit tests
+
+[pytest-lanes]
+lanes = other
+max_workers = 3
+
+[pytest-lanes:other]
+marker = unit
+""",
+    )
+
+    config = load_lane_config(ini)
+
+    assert config.max_workers == 3
+
+
+def test_loader_leaves_max_workers_unset_when_absent(tmp_path: Path) -> None:
+    ini = _write_ini(
+        tmp_path,
+        """
+[pytest]
+markers =
+\tunit: unit tests
+
+[pytest-lanes]
+lanes = other
+
+[pytest-lanes:other]
+marker = unit
+""",
+    )
+
+    config = load_lane_config(ini)
+
+    assert config.max_workers is None
+
+
+def test_loader_raises_when_max_workers_is_not_an_integer(tmp_path: Path) -> None:
+    ini = _write_ini(
+        tmp_path,
+        """
+[pytest]
+markers =
+\tunit: unit tests
+
+[pytest-lanes]
+lanes = other
+max_workers = plenty
+
+[pytest-lanes:other]
+marker = unit
+""",
+    )
+
+    with pytest.raises(LaneConfigError, match="max_workers"):
+        load_lane_config(ini)

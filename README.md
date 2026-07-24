@@ -161,6 +161,7 @@ Then:
 ```bash
 pytest .                          # fan out: one subprocess per lane, in parallel
 pytest . --lanes-full             # standard lanes + every optional lane
+pytest . --lanes-max-workers=2    # cap concurrent lanes (default: CPU count)
 pytest --lane=postgres            # one lane, in-process, no fanout
 pytest --lane=postgres,timescale  # multiple lanes, in-process
 pytest -m unit                    # marker-only run; orchestration steps aside
@@ -187,6 +188,7 @@ The `[pytest-lanes]` index section:
 | `lanes` (required) | All lane names in classification priority order — first matching rule wins. |
 | `subprocess_order_standard` | Lane names that produce a subprocess in `pytest .` (default) mode, in launch order. |
 | `subprocess_order_full` | Lane names that produce a subprocess in `pytest . --lanes-full` mode. Lanes here but not in `subprocess_order_standard` are "optional" (e.g. a slow build-verification lane). |
+| `max_workers` | Maximum lanes running concurrently; default: CPU count. Overridden by `--lanes-max-workers`. |
 
 Every `[pytest-lanes:<name>]` section accepts:
 
@@ -221,8 +223,9 @@ pytest .
   │     │     return None; pytest runs as usual
   │     ├── build_lane_commands(mode, passthrough_args, lane_config)
   │     │     -> N argv lists, one per subprocess lane
-  │     └── run_lane_commands(commands)
-  │           ├── spawn N `python -m pytest <argv>` subprocesses
+  │     └── run_lane_commands(commands, max_workers)
+  │           ├── launch up to max_workers `python -m pytest <argv>` subprocesses;
+  │           │     remaining lanes queue in declared order, start as slots free
   │           ├── set PYTEST_LANES_CHILD=1 so children skip re-orchestration
   │           ├── reader threads stream child stdout into a shared queue
   │           ├── LaneProgressReporter parses progress, counts, failures
@@ -266,10 +269,35 @@ test-level spreading within an environment.
 | `tox -p` / `nox` | per-environment | Parallel *virtualenvs* — each env reinstalls dependencies, output is siloed per env, and selection lives outside pytest. pytest-lanes runs in one env, one command, one aggregated summary. |
 | shell scripts / `make -j` | per-command | No classification, no marker application, no passthrough args, no unified failure report. |
 
+## Hardware requirements
+
+The speedup is bought with CPU cores. Wall-clock gain is bounded by
+`min(concurrent lanes, physical cores)`: a lane is a full pytest process
+that can keep a core busy, so the working guideline is roughly one core
+per concurrent lane.
+
+Lanes beyond `max_workers` (default: CPU count) queue and launch as slots
+free, so on a 1–2 core machine a multi-lane suite degrades toward serial
+execution plus subprocess overhead — the plugin schedules the parallelism
+you declared, but it cannot create parallelism the hardware does not have.
+
+Memory scales the same way: each concurrent lane costs a full Python
+interpreter plus that lane's own infrastructure — one Postgres container
+per database lane running at the same time, and so on.
+
+For CI, size the runner to the concurrency you want. GitHub Actions'
+`ubuntu-latest` gives 4 vCPUs, so more than ~4 concurrent lanes will not
+pay off there. And `os.cpu_count()` (the `max_workers` default) reports
+*logical* cores; the honest guideline is physical cores, so on
+SMT/hyper-threaded machines consider setting `max_workers` lower.
+
 ## Limitations
 
 - No in-lane parallelism yet: a single slow lane bounds the wall-clock.
-- Max parallelism equals the number of subprocess lanes.
+- Max parallelism is `min(subprocess lane count, max_workers)`; lanes
+  beyond that queue and wait for a free slot.
+- Queued lanes launch in declared order (`subprocess_order_standard`), so
+  list the slowest lanes first until duration-aware ordering exists.
 - Configuration is INI-only (`pytest.ini`, `tox.ini`, `setup.cfg`);
   `pyproject.toml` is not supported yet.
 - Lane config must live in the same file that declares `[pytest].markers`.
@@ -281,17 +309,19 @@ test-level spreading within an environment.
 
 ## Roadmap
 
-Details and sequencing in [ROADMAP.md](ROADMAP.md). Headlines:
+Details and sequencing in [ROADMAP.md](ROADMAP.md). The bounded worker
+pool landed in v0.2; the headlines from here, in order:
 
+- **Trust & debugging DX** — `--lanes-explain` showing which lane claims
+  each test and why, an ETA in the live display, and a reproduce hint
+  under each failed lane.
 - **Zero-config lanes** — `--lane-def name=path` for ad-hoc/tox usage and
   `--lanes-auto` (one lane per test directory) for true drop-in use with
   no config file at all.
-- **Duration-aware scheduling** — a bounded worker pool with
-  longest-lane-first queueing (sane behavior on 2-core CI runners), a
-  per-file duration cache, and opt-in lane sharding that moves file-sized
-  work to idle workers only when it beats the environment spin-up cost.
-- Layer `pytest-xdist` *inside* a homogeneous lane (`lane_numprocesses`).
-- `pyproject.toml` configuration; per-lane OS gating (`requires_os`).
+- **Duration cache** — recorded per-lane wall times feeding longest-first
+  scheduling and real ETAs, replacing today's declared-order queueing.
+- **`--lanes-suggest`** — inspects a suite statically and prints a
+  proposed `[pytest-lanes]` config: the differentiator no other tool has.
 
 ## Development
 

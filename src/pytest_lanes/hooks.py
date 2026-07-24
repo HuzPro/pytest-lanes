@@ -7,7 +7,8 @@ session from the host project's INI file and cached on module state.
 
 Responsibilities, in order:
 
-* register the ``--lanes-full`` and ``--lane`` CLI options;
+* register the ``--lanes-full``, ``--lane``, and ``--lanes-max-workers`` CLI
+  options;
 * in :func:`pytest_cmdline_main`, intercept the command line and fan out into
   lane subprocesses when :func:`~pytest_lanes.mode.orchestration_mode`
   selects a multi-lane mode;
@@ -42,6 +43,7 @@ from pytest_lanes.lane_selection import (
 )
 from pytest_lanes.lanes import build_lane_commands, lane_for_item
 from pytest_lanes.mode import orchestration_mode
+from pytest_lanes.scheduler import detected_cpu_count, resolve_max_workers
 
 
 ENV_OVERRIDE_ATTR = "_pytest_lanes_env_overrides"
@@ -71,6 +73,16 @@ def pytest_addoption(parser: pytest.Parser) -> None:
             "Comma-separated for multiple lanes, e.g. --lane=postgres,timescale."
         ),
     )
+    group.addoption(
+        "--lanes-max-workers",
+        action="store",
+        type=int,
+        default=None,
+        help=(
+            "Maximum lane subprocesses running concurrently; remaining lanes "
+            "queue in declared order (default: CPU count)."
+        ),
+    )
 
 
 def pytest_cmdline_main(config: pytest.Config) -> int | None:
@@ -91,7 +103,12 @@ def pytest_cmdline_main(config: pytest.Config) -> int | None:
         # Lanes are declared but no subprocess order list is: there is nothing
         # to fan out, so let pytest run normally instead of exiting early.
         return None
-    return run_lane_commands(commands)
+    max_workers = resolve_max_workers(
+        cli_value=config.getoption("--lanes-max-workers"),
+        config_value=lane_config.max_workers,
+        detected=detected_cpu_count(),
+    )
+    return run_lane_commands(commands, max_workers=max_workers)
 
 
 def pytest_configure(config: pytest.Config) -> None:

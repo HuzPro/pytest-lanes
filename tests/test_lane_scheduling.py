@@ -1,0 +1,96 @@
+"""Behavioral tests for the bounded lane scheduler.
+
+The scheduler decides *when* each lane subprocess may launch: at most
+``max_workers`` lanes run concurrently, and queued lanes launch in the
+order chosen by a ``LaneOrderingPolicy`` as slots free up.
+"""
+
+from __future__ import annotations
+
+from unittest.mock import patch
+
+import pytest
+
+from pytest_lanes.lanes import LaneCommand
+from pytest_lanes.scheduler import (
+    DeclaredOrderPolicy,
+    LaneWorkQueue,
+    detected_cpu_count,
+    resolve_max_workers,
+)
+
+
+def _commands(*names: str) -> list[LaneCommand]:
+    return [LaneCommand(name=name, args=(".",)) for name in names]
+
+
+def test_ready_lanes_are_capped_by_max_workers() -> None:
+    work_queue = LaneWorkQueue(
+        commands=_commands("postgres", "timescale", "other"),
+        max_workers=2,
+        policy=DeclaredOrderPolicy(),
+    )
+
+    ready = work_queue.ready_to_launch()
+
+    assert [command.name for command in ready] == ["postgres", "timescale"]
+
+
+def test_finishing_a_lane_releases_a_slot_for_the_next_pending_lane() -> None:
+    work_queue = LaneWorkQueue(
+        commands=_commands("postgres", "timescale", "other"),
+        max_workers=2,
+        policy=DeclaredOrderPolicy(),
+    )
+    for command in work_queue.ready_to_launch():
+        work_queue.mark_launched(command.name)
+
+    assert work_queue.ready_to_launch() == ()
+
+    work_queue.mark_finished("postgres")
+
+    assert [command.name for command in work_queue.ready_to_launch()] == ["other"]
+
+
+def test_max_workers_at_or_above_lane_count_launches_everything_at_once() -> None:
+    work_queue = LaneWorkQueue(
+        commands=_commands("postgres", "timescale", "other"),
+        max_workers=8,
+        policy=DeclaredOrderPolicy(),
+    )
+
+    ready = work_queue.ready_to_launch()
+
+    assert [command.name for command in ready] == ["postgres", "timescale", "other"]
+
+
+def test_queue_is_done_only_after_every_lane_finishes() -> None:
+    work_queue = LaneWorkQueue(
+        commands=_commands("postgres", "other"),
+        max_workers=2,
+        policy=DeclaredOrderPolicy(),
+    )
+    for command in work_queue.ready_to_launch():
+        work_queue.mark_launched(command.name)
+
+    work_queue.mark_finished("postgres")
+    assert not work_queue.is_done()
+
+    work_queue.mark_finished("other")
+    assert work_queue.is_done()
+
+
+def test_cli_max_workers_overrides_ini_which_overrides_detected_cpu_count() -> None:
+    assert resolve_max_workers(cli_value=3, config_value=5, detected=8) == 3
+    assert resolve_max_workers(cli_value=None, config_value=5, detected=8) == 5
+    assert resolve_max_workers(cli_value=None, config_value=None, detected=8) == 8
+
+
+def test_non_positive_max_workers_is_rejected() -> None:
+    with pytest.raises(pytest.UsageError, match="positive"):
+        resolve_max_workers(cli_value=0, config_value=None, detected=8)
+
+
+def test_detected_cpu_count_reports_at_least_one_core() -> None:
+    with patch("os.cpu_count", return_value=None):
+        assert detected_cpu_count() == 1

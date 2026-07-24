@@ -1,9 +1,12 @@
 """Parallel lane subprocess executor for orchestrated pytest runs.
 
-Each lane runs as its own ``python -m pytest`` subprocess. Output is streamed
-line-by-line from each child process into a shared queue, drained by the main
-loop into the lane reporter and console presenter. Children detect the parent
-via :data:`TEST_ORCHESTRATION_CHILD_ENV` so they skip re-orchestration.
+Each lane runs as its own ``python -m pytest`` subprocess. At most
+``max_workers`` lanes run concurrently; the rest wait in a
+:class:`~pytest_lanes.scheduler.LaneWorkQueue` and launch as slots free up.
+Output is streamed line-by-line from each child process into a shared queue,
+drained by the main loop into the lane reporter and console presenter.
+Children detect the parent via :data:`TEST_ORCHESTRATION_CHILD_ENV` so they
+skip re-orchestration.
 """
 
 from __future__ import annotations
@@ -23,6 +26,7 @@ from pytest_lanes.constants import (
 )
 from pytest_lanes.lanes import LaneCommand
 from pytest_lanes.reporter import LaneConsolePresenter, LaneProgressReporter
+from pytest_lanes.scheduler import DeclaredOrderPolicy, LaneWorkQueue
 
 
 @dataclass
@@ -32,51 +36,106 @@ class _LaneRun:
     exit_code: int | None = None
 
 
-def run_lane_commands(commands: list[LaneCommand]) -> int:
+@dataclass
+class _RunContext:
+    lane_output_queue: queue.Queue[tuple[str, str]]
+    reporter: LaneProgressReporter
+    presenter: LaneConsolePresenter
+
+
+def run_lane_commands(commands: list[LaneCommand], max_workers: int) -> int:
     start_wall = time.perf_counter()
-    lane_output_queue: queue.Queue[tuple[str, str]] = queue.Queue()
     show_lane_output = os.environ.get(SHOW_LANE_OUTPUT_ENV) == "1"
     reporter = LaneProgressReporter()
     reporter.register_lanes([command.name for command in commands])
-    presenter = LaneConsolePresenter(reporter, show_lane_stream=show_lane_output)
+    context = _RunContext(
+        lane_output_queue=queue.Queue(),
+        reporter=reporter,
+        presenter=LaneConsolePresenter(reporter, show_lane_stream=show_lane_output),
+    )
+    work_queue = LaneWorkQueue(
+        commands, max_workers=max_workers, policy=DeclaredOrderPolicy()
+    )
 
-    runs, readers = _launch_lanes(commands, reporter, lane_output_queue)
-    presenter.start()
+    runs: list[_LaneRun] = []
+    readers: list[threading.Thread] = []
+    context.presenter.start()
     try:
-        _poll_until_finished(runs, lane_output_queue, reporter, presenter)
+        _run_scheduling_loop(work_queue, context, runs, readers)
     finally:
         for reader in readers:
             reader.join(timeout=0.2)
-        presenter.stop()
+        context.presenter.stop()
 
     _print_lane_outputs(reporter, show_lane_output)
 
     wall_seconds = time.perf_counter() - start_wall
-    presenter.print_summary(reporter, wall_seconds=wall_seconds)
+    context.presenter.print_summary(reporter, wall_seconds=wall_seconds)
 
     exit_codes = [result["exit_code"] for result in reporter.lane_results()]
     return max(exit_codes) if exit_codes else 0
 
 
-def _launch_lanes(
-    commands: list[LaneCommand],
-    reporter: LaneProgressReporter,
-    lane_output_queue: queue.Queue[tuple[str, str]],
-) -> tuple[list[_LaneRun], list[threading.Thread]]:
-    runs: list[_LaneRun] = []
-    readers: list[threading.Thread] = []
-    for command in commands:
-        process = _spawn_lane_subprocess(command)
-        reporter.mark_started(command.name)
-        reader = threading.Thread(
-            target=stream_lane_output,
-            args=(command.name, process, lane_output_queue),
-            daemon=True,
+def _run_scheduling_loop(
+    work_queue: LaneWorkQueue,
+    context: _RunContext,
+    runs: list[_LaneRun],
+    readers: list[threading.Thread],
+) -> None:
+    """Launch lanes as worker slots allow and poll until every lane finishes.
+
+    ``runs`` and ``readers`` are appended in place so the caller can join
+    reader threads even when the loop exits via an exception (Ctrl+C); no
+    new lane launches after that point.
+    """
+    while not work_queue.is_done():
+        for command in work_queue.ready_to_launch():
+            run, reader = _launch_single_lane(command, context)
+            work_queue.mark_launched(command.name)
+            runs.append(run)
+            readers.append(reader)
+
+        drain_lane_output_queue(
+            context.lane_output_queue, context.reporter, context.presenter
         )
-        reader.start()
-        readers.append(reader)
-        runs.append(_LaneRun(name=command.name, process=process))
-    return runs, readers
+        _record_finished_lanes(runs, context.reporter, work_queue)
+        context.presenter.refresh()
+        if not work_queue.is_done():
+            time.sleep(LANE_POLL_INTERVAL_SECONDS)
+
+    drain_lane_output_queue(
+        context.lane_output_queue, context.reporter, context.presenter
+    )
+
+
+def _launch_single_lane(
+    command: LaneCommand, context: _RunContext
+) -> tuple[_LaneRun, threading.Thread]:
+    process = _spawn_lane_subprocess(command)
+    context.reporter.mark_started(command.name)
+    reader = threading.Thread(
+        target=stream_lane_output,
+        args=(command.name, process, context.lane_output_queue),
+        daemon=True,
+    )
+    reader.start()
+    return _LaneRun(name=command.name, process=process), reader
+
+
+def _record_finished_lanes(
+    runs: list[_LaneRun],
+    reporter: LaneProgressReporter,
+    work_queue: LaneWorkQueue,
+) -> None:
+    for run in runs:
+        if run.exit_code is not None:
+            continue
+        return_code = run.process.poll()
+        if return_code is None:
+            continue
+        run.exit_code = return_code
+        reporter.mark_finished(run.name, return_code)
+        work_queue.mark_finished(run.name)
 
 
 def _spawn_lane_subprocess(command: LaneCommand) -> subprocess.Popen[str]:
@@ -92,33 +151,6 @@ def _spawn_lane_subprocess(command: LaneCommand) -> subprocess.Popen[str]:
         text=True,
         bufsize=1,
     )
-
-
-def _poll_until_finished(
-    runs: list[_LaneRun],
-    lane_output_queue: queue.Queue[tuple[str, str]],
-    reporter: LaneProgressReporter,
-    presenter: LaneConsolePresenter,
-) -> None:
-    unfinished_count = len(runs)
-    while unfinished_count > 0:
-        drain_lane_output_queue(lane_output_queue, reporter, presenter)
-
-        for run in runs:
-            if run.exit_code is not None:
-                continue
-            return_code = run.process.poll()
-            if return_code is None:
-                continue
-            run.exit_code = return_code
-            reporter.mark_finished(run.name, return_code)
-            unfinished_count -= 1
-
-        presenter.refresh()
-        if unfinished_count > 0:
-            time.sleep(LANE_POLL_INTERVAL_SECONDS)
-
-    drain_lane_output_queue(lane_output_queue, reporter, presenter)
 
 
 def _print_lane_outputs(reporter: LaneProgressReporter, show_lane_output: bool) -> None:

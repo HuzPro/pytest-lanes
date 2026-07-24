@@ -26,7 +26,7 @@ markers =
 [pytest-lanes]
 lanes = io other
 subprocess_order_standard = io other
-
+{extra_index_lines}
 [pytest-lanes:io]
 marker = io
 classifier_path_prefixes = io_tests/
@@ -39,8 +39,9 @@ subprocess_ignore_other_lanes = true
 """
 
 
-def _write_demo_project(root: Path) -> None:
-    (root / "pytest.ini").write_text(_PROJECT_INI, encoding="utf-8")
+def _write_demo_project(root: Path, extra_index_lines: str = "") -> None:
+    ini_body = _PROJECT_INI.format(extra_index_lines=extra_index_lines)
+    (root / "pytest.ini").write_text(ini_body, encoding="utf-8")
     io_dir = root / "io_tests"
     io_dir.mkdir()
     (io_dir / "test_io.py").write_text(
@@ -98,3 +99,36 @@ def test_failing_lane_propagates_exit_code_and_surfaces_its_output(
     assert result.returncode != 0
     assert "test_broken" in result.stdout
     assert "Lane Test Summary" in result.stdout
+
+
+def test_lanes_beyond_max_workers_wait_for_a_free_slot(tmp_path: Path) -> None:
+    _write_demo_project(tmp_path, extra_index_lines="max_workers = 1\n")
+    # The io lane finishes by writing a sentinel; the other lane's test only
+    # passes if that sentinel already exists when it runs. With one worker
+    # and declared order io -> other, this is deterministic — no timing
+    # assertions needed.
+    (tmp_path / "io_tests" / "test_io.py").write_text(
+        "import time\n"
+        "from pathlib import Path\n"
+        "\n"
+        "\n"
+        "def test_io_lane_writes_sentinel_before_finishing():\n"
+        "    time.sleep(1.0)\n"
+        "    sentinel = Path(__file__).resolve().parent.parent / 'io_done.txt'\n"
+        "    sentinel.write_text('done', encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "unit_tests" / "test_unit.py").write_text(
+        "from pathlib import Path\n"
+        "\n"
+        "\n"
+        "def test_other_lane_launches_only_after_io_lane_finished():\n"
+        "    sentinel = Path(__file__).resolve().parent.parent / 'io_done.txt'\n"
+        "    assert sentinel.exists()\n",
+        encoding="utf-8",
+    )
+
+    result = _run_pytest_in(tmp_path)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "FAIL" not in result.stdout

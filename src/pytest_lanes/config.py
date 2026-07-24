@@ -48,6 +48,7 @@ class LaneConfig:
     lanes: tuple[LaneSpec, ...]
     subprocess_order_standard: tuple[str, ...] = ()
     subprocess_order_full: tuple[str, ...] = ()
+    max_workers: int | None = None
 
     def lane_by_name(self, name: str) -> LaneSpec | None:
         for spec in self.lanes:
@@ -101,14 +102,31 @@ def load_lane_config(ini_path: Path) -> LaneConfig:
     subprocess_order_full = _tokens(
         parser.get("pytest-lanes", "subprocess_order_full", fallback="")
     )
-    _validate_subprocess_order_names(subprocess_order_standard, lane_names, "subprocess_order_standard")
-    _validate_subprocess_order_names(subprocess_order_full, lane_names, "subprocess_order_full")
+    _validate_subprocess_order_names(
+        subprocess_order_standard, lane_names, "subprocess_order_standard"
+    )
+    _validate_subprocess_order_names(
+        subprocess_order_full, lane_names, "subprocess_order_full"
+    )
 
     return LaneConfig(
         lanes=lanes,
         subprocess_order_standard=subprocess_order_standard,
         subprocess_order_full=subprocess_order_full,
+        max_workers=_parse_max_workers(parser),
     )
+
+
+def _parse_max_workers(parser: configparser.ConfigParser) -> int | None:
+    text = parser.get("pytest-lanes", "max_workers", fallback="").strip()
+    if not text:
+        return None
+    try:
+        return int(text)
+    except ValueError as error:
+        raise LaneConfigError(
+            f"[pytest-lanes].max_workers must be an integer (got '{text}')."
+        ) from error
 
 
 def load_lane_config_or_none(rootpath: Path) -> LaneConfig | None:
@@ -168,7 +186,9 @@ def _parse_lane(
             f"Lane '{name}' uses marker '{marker}' which is not declared in [pytest].markers."
         )
 
-    env_set_pairs = tuple(_parse_env_set(parser.get(section, "subprocess_env_set", fallback="")))
+    env_set_pairs = tuple(
+        _parse_env_set(parser.get(section, "subprocess_env_set", fallback=""))
+    )
 
     return LaneSpec(
         name=name,
@@ -177,14 +197,23 @@ def _parse_lane(
         classifier_path_prefixes=_tokens(
             parser.get(section, "classifier_path_prefixes", fallback="")
         ),
-        classifier_path_suffix=parser.get(section, "classifier_path_suffix", fallback="").strip() or None,
+        classifier_path_suffix=parser.get(
+            section, "classifier_path_suffix", fallback=""
+        ).strip()
+        or None,
         classifier_class_base_names=_tokens(
             parser.get(section, "classifier_class_base_names", fallback="")
         ),
-        classifier_fallback=parser.getboolean(section, "classifier_fallback", fallback=False),
+        classifier_fallback=parser.getboolean(
+            section, "classifier_fallback", fallback=False
+        ),
         subprocess_paths=_tokens(parser.get(section, "subprocess_paths", fallback="")),
-        subprocess_nodeids=_tokens(parser.get(section, "subprocess_nodeids", fallback="")),
-        subprocess_ignore=_tokens(parser.get(section, "subprocess_ignore", fallback="")),
+        subprocess_nodeids=_tokens(
+            parser.get(section, "subprocess_nodeids", fallback="")
+        ),
+        subprocess_ignore=_tokens(
+            parser.get(section, "subprocess_ignore", fallback="")
+        ),
         subprocess_ignore_other_lanes=parser.getboolean(
             section, "subprocess_ignore_other_lanes", fallback=False
         ),
@@ -207,7 +236,9 @@ def _parse_env_set(text: str) -> Iterable[tuple[str, str]]:
 
 
 def _validate_ignore_other_lanes_uniqueness(lanes: tuple[LaneSpec, ...]) -> None:
-    lanes_with_flag = [spec.name for spec in lanes if spec.subprocess_ignore_other_lanes]
+    lanes_with_flag = [
+        spec.name for spec in lanes if spec.subprocess_ignore_other_lanes
+    ]
     if len(lanes_with_flag) > 1:
         raise LaneConfigError(
             "At most one lane may set subprocess_ignore_other_lanes=true; "
