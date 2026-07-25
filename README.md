@@ -404,8 +404,8 @@ Every `[pytest-lanes:<name>]` section accepts:
 | `divisible` | Set to `files` to opt this lane into sharding — asserting its files are mutually independent and its environment tolerates a duplicate running alongside it. See [Sharding](#sharding-splitting-a-slow-lane). |
 | `tolerate_no_tests` | If `true`, this lane collecting zero tests counts as success instead of failing the run. Meant for catch-all lanes that may legitimately come up empty. |
 
-This schema is frozen for the 0.2.x series: keys will be added, never
-changed or removed.
+This schema is frozen for the whole 0.x series: keys will be added, never
+renamed or removed.
 
 ### The same schema in `pyproject.toml`
 
@@ -731,7 +731,7 @@ milestone, it also shipped per-file run measurement, in-lane xdist
 and statically-planned [lane sharding](#sharding-splitting-a-slow-lane).
 
 It also ships `[tool.pytest-lanes]` configuration in `pyproject.toml` —
-the full lane schema, frozen for 0.2.x. The remaining direction is
+the full lane schema, frozen for 0.x. The remaining direction is
 per-lane OS gating (`requires_os`) and release-time discoverability work.
 
 ## FAQ

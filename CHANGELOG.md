@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 — 2026-07-25
+
+First published release. 0.2.0 was tagged but never uploaded; everything in
+its entry below ships here too.
 
 - **Ships type information.** The package has always been fully annotated but
   shipped no `py.typed` marker, so type checkers ignored it downstream
@@ -87,7 +90,7 @@
   are config errors naming the offending field, not silently ignored. On
   Python 3.10 the `tomli` backport is pulled in automatically (`tomllib`
   is stdlib from 3.11). The configuration schema — both formats — is
-  frozen for the 0.2.x series: additions only, no renames or removals.
+  frozen for the whole 0.x series: additions only, no renames or removals.
 
 - **Fixed: filtered runs no longer crash on tests outside every lane.**
   With a lane config that declares no fallback lane, `pytest . -k <expr>`

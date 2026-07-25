@@ -147,7 +147,7 @@ this release.
 
 - ~~`pyproject.toml` (`[tool.pytest-lanes]`) configuration~~ — **shipped in
   0.2.0**, full schema with strict TOML validation; the configuration
-  schema (both formats) is frozen for the 0.2.x series.
+  schema (both formats) is frozen for the whole 0.x series.
 - Per-lane OS gating (`requires_os`).
 - Discoverability / SEO: FAQ-style README additions phrased the way people
   actually search ("pytest slow with testcontainers", "xdist starts one
