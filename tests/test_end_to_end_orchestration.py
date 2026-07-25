@@ -13,7 +13,11 @@ import json
 import os
 import subprocess
 import sys
+from importlib.util import find_spec
 from pathlib import Path
+from xml.etree import ElementTree
+
+import pytest
 
 from pytest_lanes.constants import TEST_ORCHESTRATION_CHILD_ENV
 
@@ -143,6 +147,68 @@ def test_failing_lane_propagates_exit_code_and_surfaces_its_output(
     assert result.returncode != 0
     assert "test_broken" in result.stdout
     assert "Lane Test Summary" in result.stdout
+
+
+def test_junit_report_holds_every_lanes_tests(tmp_path: Path) -> None:
+    # Given a CI-style run asking for one JUnit report, every lane writes the
+    # same path unless the parent stages and merges them - and the last
+    # writer silently wins, handing CI a report missing most of the suite.
+    _write_demo_project(tmp_path)
+    report = tmp_path / "report.xml"
+
+    result = _run_pytest_in(tmp_path, extra_args=(f"--junitxml={report}",))
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    document = ElementTree.parse(report).getroot()
+    recorded = {case.get("name") for case in document.iter("testcase")}
+    assert recorded == {"test_io_lane_runs", "test_unit_lane_runs"}
+    # A consumer that reads only the root element must see the true total.
+    assert int(document.get("tests", "0")) == len(recorded)
+
+
+@pytest.mark.skipif(
+    find_spec("pytest_cov") is None, reason="requires pytest-cov installed"
+)
+def test_coverage_run_completes_and_combines_lane_data(tmp_path: Path) -> None:
+    # Given --cov, lane children each measure coverage; sharing one
+    # .coverage SQLite file made them corrupt it and fail the run.
+    _write_demo_project(tmp_path)
+
+    result = _run_pytest_in(tmp_path, extra_args=("--cov=.", "--cov-report="))
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "DataError" not in result.stdout
+    assert "FAIL" not in result.stdout
+    assert (tmp_path / ".coverage").exists(), "combined coverage data missing"
+
+
+@pytest.mark.skipif(
+    find_spec("pytest_cov") is None, reason="requires pytest-cov installed"
+)
+def test_coverage_xml_report_is_written_once_for_the_whole_run(
+    tmp_path: Path,
+) -> None:
+    # The requested report must be produced by the parent after combining,
+    # not raced over by every lane child.
+    _write_demo_project(tmp_path)
+    coverage_xml = tmp_path / "cov.xml"
+
+    result = _run_pytest_in(
+        tmp_path, extra_args=("--cov=.", f"--cov-report=xml:{coverage_xml}")
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert coverage_xml.exists(), "requested coverage xml was never written"
+    measured = ElementTree.parse(coverage_xml).getroot()
+    filenames = {element.get("filename", "") for element in measured.iter("class")} | {
+        element.get("name", "") for element in measured.iter("class")
+    }
+    flattened = " ".join(sorted(filenames))
+    # Each lane executes a different test module, so a report produced by one
+    # lane overwriting another's mentions only that lane's file. Both names
+    # appearing is what proves the data was combined.
+    assert "test_io.py" in flattened, flattened
+    assert "test_unit.py" in flattened, flattened
 
 
 def test_lanes_beyond_max_workers_wait_for_a_free_slot(tmp_path: Path) -> None:

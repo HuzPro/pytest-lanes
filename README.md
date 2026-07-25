@@ -460,6 +460,22 @@ is where `--pdb` works normally (a debugger cannot attach to a lane
 subprocess, and xdist has the same limitation with no in-process escape
 hatch).
 
+### Coverage and JUnit reports in CI
+
+`--junitxml` and `--cov` work as they do in a single-process run, because
+each lane is staged to its own file and the parent aggregates afterwards:
+
+```bash
+pytest . --junitxml=report.xml --cov=src --cov-report=xml:coverage.xml
+```
+
+`report.xml` holds every lane's test cases, with correct totals on the root
+element; `coverage.xml` and the `.coverage` data file are combined across
+all lanes. Without this, each lane would write the same path — coverage's
+SQLite data file corrupts outright, and a JUnit report silently keeps only
+whichever lane finished last. If you have ever wired lanes up by hand with
+several pytest invocations, this is the part that is easy to get wrong.
+
 To see the partition before committing to a run, `--lanes-explain`
 prints one line per collected test — the lane that claims it and the
 classifier rule that matched — then exits without running anything.
@@ -641,16 +657,19 @@ cash in its `T/2`.
 - Queued lanes launch longest-first from recorded durations; the first run
   (no data yet) uses declared order (`subprocess_order_standard`), so
   listing the slowest lanes first still helps once.
-- Persistent config is INI-only (`pytest.ini`, `tox.ini`, `setup.cfg`); the
-  `--lane-def` and `--lanes-auto` flags define lanes with no file, but
-  `pyproject.toml` is not supported yet.
-- INI lane config must live in the same file that declares
-  `[pytest].markers`.
+- Lane config must live in the same file that declares your pytest markers
+  (`[pytest].markers`, or `[tool.pytest.ini_options].markers` in
+  `pyproject.toml`).
 - Lane-to-marker mapping is one marker per lane; multiple lanes may share a
   marker.
-- The orchestrator aggregates child exit codes and output; plugins that need
-  a single test session (e.g. combined coverage) require per-lane data
-  combination (e.g. `coverage combine`).
+- **Third-party plugins that write one output file per session** need the
+  same treatment `--junitxml` and `--cov` already get (each lane staged to
+  its own path, merged afterwards). Those two are handled; a plugin writing
+  its own single report file from every lane will still have its lanes race
+  for it. `--cov-report` specs carrying modifiers, such as
+  `term-missing:skip-covered`, are reported as unsupported and skipped —
+  the combined `.coverage` is still written, so you can run `coverage`
+  yourself.
 - Lane children run with pytest's cacheprovider disabled (concurrent
   children would race on `.pytest_cache` and clobber each other's
   `lastfailed`), so `pytest --lf` after an orchestrated run does not see

@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- **Fixed: `--cov` no longer corrupts its data file or fails the run.** Every
+  lane child inherited the same `COVERAGE_FILE`, so concurrent writers hit
+  `coverage.exceptions.DataError: no such table: other_db.file` and a lane
+  was reported as FAILED even though all of its tests passed. Each lane now
+  measures into its own `.coverage.<lane>` data file; the parent runs
+  `coverage combine` after the lanes finish and produces the reports that
+  were requested, once, from the combined data. Child lanes no longer emit
+  their own partial reports. `--cov-report` specs with modifiers
+  (`term-missing:skip-covered`) are called out as unsupported and skipped
+  rather than silently dropped — the combined data file is still written.
+
+- **Fixed: `--junitxml` no longer silently discards most of the suite.** Every
+  lane wrote the same path, so the last lane to finish overwrote the others
+  and CI received a report containing one lane's tests with a passing exit
+  code — wrong output, no warning. Lanes now write to private staging paths
+  that the parent merges into the requested file, with summed `tests`,
+  `failures`, `errors`, `skipped` and `time` on the root element. Both
+  `--junitxml` and `--junit-xml` spellings, and repeated flags, are handled.
+  A lane that dies before writing its file is skipped rather than losing the
+  whole report.
+
 - **`-s` / `--capture=no` now streams lane output live**, as it does in plain
   pytest. Previously live output was reachable only through the
   undocumented `PYTEST_LANES_SHOW_OUTPUT=1` environment variable, so `-s`

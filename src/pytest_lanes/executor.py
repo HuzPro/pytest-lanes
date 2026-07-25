@@ -34,6 +34,10 @@ from pytest_lanes.constants import (
 )
 from pytest_lanes.durations import DurationStore, InMemoryDurationStore, LaneRecord
 from pytest_lanes.lanes import LaneCommand
+from pytest_lanes.report_aggregation import (
+    aggregate_lane_reports,
+    prepare_lane_reports,
+)
 from pytest_lanes.reporter import LaneConsolePresenter, LaneProgressReporter
 from pytest_lanes.scheduler import LaneWorkQueue, ordering_policy_for
 
@@ -66,6 +70,8 @@ def run_lane_commands(
     # The env var predates the flag and still works, for CI jobs that want
     # every lane's output without changing the pytest command.
     show_lane_output = show_lane_output or os.environ.get(SHOW_LANE_OUTPUT_ENV) == "1"
+    reports_dir = Path(tempfile.mkdtemp(prefix="pytest-lanes-reports-"))
+    commands, report_plan = prepare_lane_reports(commands, staging_dir=reports_dir)
     store = duration_store if duration_store is not None else InMemoryDurationStore()
     recorded_durations = store.recorded_durations()
     reporter = LaneProgressReporter(expected_durations=recorded_durations)
@@ -96,6 +102,9 @@ def run_lane_commands(
         context.presenter.stop()
 
     _print_lane_outputs(reporter, show_lane_output)
+
+    aggregate_lane_reports(report_plan, [command.name for command in commands])
+    shutil.rmtree(reports_dir, ignore_errors=True)
 
     wall_seconds = time.perf_counter() - start_wall
     context.presenter.print_summary(reporter, wall_seconds=wall_seconds)
