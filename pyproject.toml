@@ -30,7 +30,11 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Testing",
 ]
-dependencies = ["pytest>=7.4"]
+dependencies = [
+    "pytest>=7.4",
+    # tomllib landed in the 3.11 stdlib; 3.10 reads pyproject lane config via tomli.
+    "tomli>=1.1.0; python_version < '3.11'",
+]
 
 [project.optional-dependencies]
 rich = ["rich>=13"]

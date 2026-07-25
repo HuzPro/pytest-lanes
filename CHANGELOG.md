@@ -2,6 +2,19 @@
 
 ## 0.2.0 — unreleased
 
+- **`[tool.pytest-lanes]` configuration in `pyproject.toml`.** The full lane
+  schema — index keys, lane tables as `[tool.pytest-lanes.lane.<name>]`,
+  `subprocess_env_set` as a real TOML table — loading into the same
+  validated config model as the INI format. Markers validate against
+  `[tool.pytest.ini_options].markers` in the same file. Discovery follows
+  pytest's own precedence: `pytest.ini`, then `pyproject.toml`, then
+  `tox.ini`, then `setup.cfg`. The TOML loader is deliberately stricter
+  than the INI one: unknown keys, ghost lane tables, and wrong TOML types
+  are config errors naming the offending field, not silently ignored. On
+  Python 3.10 the `tomli` backport is pulled in automatically (`tomllib`
+  is stdlib from 3.11). The configuration schema — both formats — is
+  frozen for the 0.2.x series: additions only, no renames or removals.
+
 - **Fixed: filtered runs no longer crash on tests outside every lane.**
   With a lane config that declares no fallback lane, `pytest . -k <expr>`
   (or `-m`, or targeted paths — anything that makes orchestration step

@@ -18,7 +18,8 @@ from pathlib import Path
 
 import pytest
 
-from pytest_lanes.config import LaneConfig, LaneSpec, load_lane_config_or_none
+from pytest_lanes.config import LaneConfig, LaneSpec
+from pytest_lanes.config_discovery import discover_lane_config
 
 FALLBACK_LANE_NAME = "other"
 MINIMUM_USEFUL_PARTITION = 2
@@ -30,10 +31,10 @@ def resolve_lane_config_or_none(
     lanes_auto: bool,
     rootpath: Path,
 ) -> LaneConfig | None:
-    """Resolve the active lane config: CLI definitions > auto partition > INI.
+    """Resolve the active lane config: CLI definitions > auto partition > files.
 
     Returns ``None`` when nothing configures lanes — the dormancy guarantee:
-    without an INI section or an explicit zero-config flag, the plugin
+    without a lane config file or an explicit zero-config flag, the plugin
     behaves as if it were not installed.
     """
     if cli_definitions:
@@ -42,7 +43,7 @@ def resolve_lane_config_or_none(
         auto_config = auto_lane_config_or_none(rootpath)
         if auto_config is not None:
             return auto_config
-    return load_lane_config_or_none(rootpath)
+    return discover_lane_config(rootpath)
 
 
 def lane_config_from_definitions(definitions: Sequence[str]) -> LaneConfig:

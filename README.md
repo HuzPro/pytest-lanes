@@ -293,6 +293,45 @@ Every `[pytest-lanes:<name>]` section accepts:
 | `subprocess_env_set` | Whitespace-separated `KEY=VALUE` entries injected into the subprocess env *and* applied per-test in single-process mode. |
 | `lane_numprocesses` | If `> 1`, run this lane's subprocess under pytest-xdist (`-n N --dist loadfile`). For homogeneous lanes whose environment is cheap to duplicate; requires pytest-xdist. Reintroduces per-worker environment duplication *inside* this lane. See [Sharding](#sharding-splitting-a-slow-lane). |
 | `divisible` | Set to `files` to opt this lane into sharding — asserting its files are mutually independent and its environment tolerates a duplicate running alongside it. See [Sharding](#sharding-splitting-a-slow-lane). |
+| `tolerate_no_tests` | If `true`, this lane collecting zero tests counts as success instead of failing the run. Meant for catch-all lanes that may legitimately come up empty. |
+
+This schema is frozen for the 0.2.x series: keys will be added, never
+changed or removed.
+
+### The same schema in `pyproject.toml`
+
+Everything above can live in `pyproject.toml` instead, under
+`[tool.pytest-lanes]` — same keys, same meanings, TOML types instead of
+whitespace-delimited strings:
+
+```toml
+[tool.pytest.ini_options]
+markers = ["postgres_integration: postgres-backed integration tests"]
+
+[tool.pytest-lanes]
+lanes = ["postgres", "other"]
+subprocess_order_standard = ["postgres", "other"]
+max_workers = 3
+
+[tool.pytest-lanes.lane.postgres]
+marker = "postgres_integration"
+classifier_path_prefixes = ["tests/integration/"]
+subprocess_paths = ["tests/integration"]
+subprocess_env_set = { DATABASE_URL = "postgresql://localhost/test" }
+
+[tool.pytest-lanes.lane.other]
+marker = "unit"
+classifier_fallback = true
+subprocess_ignore_other_lanes = true
+```
+
+Markers are validated against `[tool.pytest.ini_options].markers` in the
+same file. Discovery follows pytest's own config precedence — `pytest.ini`,
+then `pyproject.toml`, then `tox.ini`, then `setup.cfg`; the first file
+declaring lane configuration wins. Because TOML carries real types, the
+pyproject loader is stricter than the INI one: a misspelled key, a string
+where an array belongs, or a float where an integer belongs is a config
+error naming the offending field, not something silently ignored.
 
 ### Adding a new lane
 
@@ -547,9 +586,9 @@ milestone, it also shipped per-file run measurement, in-lane xdist
 (`lane_numprocesses`), duration-balanced `--lanes-suggest` partitions,
 and statically-planned [lane sharding](#sharding-splitting-a-slow-lane).
 
-The remaining direction is `pyproject.toml` (`[tool.pytest-lanes]`)
-configuration, per-lane OS gating (`requires_os`), and release-time
-discoverability work.
+It also ships `[tool.pytest-lanes]` configuration in `pyproject.toml` —
+the full lane schema, frozen for 0.2.x. The remaining direction is
+per-lane OS gating (`requires_os`) and release-time discoverability work.
 
 ## Development
 

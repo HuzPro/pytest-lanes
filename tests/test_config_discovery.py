@@ -1,9 +1,10 @@
 """Behavioral tests for config discovery and dormant-mode behavior.
 
 These behaviors are what make the plugin safe to install globally: it must
-stay dormant in projects without a ``[pytest-lanes]`` section, discover its
-section in any of pytest.ini / tox.ini / setup.cfg, and fall back to a plain
-pytest run when lanes exist but no subprocess order is declared.
+stay dormant in projects without lane configuration, discover lanes in any
+of pytest.ini / pyproject.toml / tox.ini / setup.cfg (in pytest's own
+precedence order), and fall back to a plain pytest run when lanes exist but
+no subprocess order is declared.
 """
 
 from __future__ import annotations
@@ -13,7 +14,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from pytest_lanes import hooks
-from pytest_lanes.config import LaneConfig, LaneSpec, load_lane_config_or_none
+from pytest_lanes.config import LaneConfig, LaneSpec
+from pytest_lanes.config_discovery import discover_lane_config
 from pytest_lanes.constants import TEST_ORCHESTRATION_CHILD_ENV
 
 _MINIMAL_LANES_BODY = """
@@ -42,23 +44,37 @@ marker = unit
 classifier_fallback = true
 """
 
+_PYPROJECT_LANES_BODY = """
+[tool.pytest.ini_options]
+markers = ["unit: unit tests"]
+
+[tool.pytest-lanes]
+lanes = ["from_pyproject"]
+
+[tool.pytest-lanes.lane.from_pyproject]
+marker = "unit"
+classifier_fallback = true
+"""
+
 
 def test_discovery_returns_none_when_no_config_file_declares_lanes(
     tmp_path: Path,
 ) -> None:
     (tmp_path / "pytest.ini").write_text("[pytest]\n", encoding="utf-8")
 
-    assert load_lane_config_or_none(tmp_path) is None
+    assert discover_lane_config(tmp_path) is None
 
 
-def test_discovery_returns_none_when_rootdir_has_no_ini_files(tmp_path: Path) -> None:
-    assert load_lane_config_or_none(tmp_path) is None
+def test_discovery_returns_none_when_rootdir_has_no_config_files(
+    tmp_path: Path,
+) -> None:
+    assert discover_lane_config(tmp_path) is None
 
 
 def test_discovery_finds_lanes_section_in_tox_ini(tmp_path: Path) -> None:
     (tmp_path / "tox.ini").write_text(_MINIMAL_LANES_BODY, encoding="utf-8")
 
-    config = load_lane_config_or_none(tmp_path)
+    config = discover_lane_config(tmp_path)
 
     assert config is not None
     assert config.lane_by_name("other") is not None
@@ -69,7 +85,7 @@ def test_discovery_reads_markers_from_tool_pytest_section_in_setup_cfg(
 ) -> None:
     (tmp_path / "setup.cfg").write_text(_SETUP_CFG_BODY, encoding="utf-8")
 
-    config = load_lane_config_or_none(tmp_path)
+    config = discover_lane_config(tmp_path)
 
     assert config is not None
     other = config.lane_by_name("other")
@@ -83,9 +99,53 @@ def test_discovery_prefers_pytest_ini_over_tox_ini(tmp_path: Path) -> None:
         _MINIMAL_LANES_BODY.replace("other", "toxlane"), encoding="utf-8"
     )
 
-    config = load_lane_config_or_none(tmp_path)
+    config = discover_lane_config(tmp_path)
 
     assert config is not None
+    assert config.lane_by_name("other") is not None
+
+
+def test_discovery_reads_lanes_from_pyproject_when_no_ini_declares_them(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "pyproject.toml").write_text(_PYPROJECT_LANES_BODY, encoding="utf-8")
+
+    config = discover_lane_config(tmp_path)
+
+    assert config is not None
+    assert [spec.name for spec in config.lanes] == ["from_pyproject"]
+
+
+def test_discovery_prefers_pytest_ini_over_pyproject(tmp_path: Path) -> None:
+    # pytest's own config precedence puts pytest.ini above pyproject.toml;
+    # lane discovery must agree with it.
+    (tmp_path / "pytest.ini").write_text(_MINIMAL_LANES_BODY, encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text(_PYPROJECT_LANES_BODY, encoding="utf-8")
+
+    config = discover_lane_config(tmp_path)
+
+    assert config.lane_by_name("other") is not None
+
+
+def test_discovery_prefers_pyproject_over_tox_ini(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text(_PYPROJECT_LANES_BODY, encoding="utf-8")
+    (tmp_path / "tox.ini").write_text(_MINIMAL_LANES_BODY, encoding="utf-8")
+
+    config = discover_lane_config(tmp_path)
+
+    assert config.lane_by_name("from_pyproject") is not None
+
+
+def test_discovery_skips_a_pyproject_without_a_lanes_table(tmp_path: Path) -> None:
+    # A normal pyproject (no [tool.pytest-lanes]) must not stop discovery
+    # from reaching a tox.ini that does declare lanes.
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "demo"\n', encoding="utf-8"
+    )
+    (tmp_path / "tox.ini").write_text(_MINIMAL_LANES_BODY, encoding="utf-8")
+
+    config = discover_lane_config(tmp_path)
+
     assert config.lane_by_name("other") is not None
 
 

@@ -93,6 +93,43 @@ def test_pytest_run_fans_out_into_one_subprocess_per_lane(tmp_path: Path) -> Non
     assert "FAIL" not in result.stdout
 
 
+_PROJECT_PYPROJECT = """\
+[tool.pytest.ini_options]
+markers = [
+    "io: simulated infrastructure-heavy tests",
+    "unit: fast unit tests",
+]
+
+[tool.pytest-lanes]
+lanes = ["io", "other"]
+subprocess_order_standard = ["io", "other"]
+
+[tool.pytest-lanes.lane.io]
+marker = "io"
+classifier_path_prefixes = ["io_tests/"]
+subprocess_paths = ["io_tests"]
+
+[tool.pytest-lanes.lane.other]
+marker = "unit"
+classifier_fallback = true
+subprocess_ignore_other_lanes = true
+"""
+
+
+def test_project_configured_only_via_pyproject_toml_fans_out(tmp_path: Path) -> None:
+    # No INI file anywhere: [tool.pytest-lanes] is the whole configuration.
+    (tmp_path / "pyproject.toml").write_text(_PROJECT_PYPROJECT, encoding="utf-8")
+    _write_test_directories(tmp_path)
+
+    result = _run_pytest_in(tmp_path)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Lane Test Summary" in result.stdout
+    assert "io" in result.stdout
+    assert "other" in result.stdout
+    assert "FAIL" not in result.stdout
+
+
 def test_failing_lane_propagates_exit_code_and_surfaces_its_output(
     tmp_path: Path,
 ) -> None:

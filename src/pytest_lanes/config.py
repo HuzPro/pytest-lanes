@@ -24,9 +24,6 @@ class LaneConfigError(Exception):
     """Raised when lane configuration is missing or malformed."""
 
 
-CONFIG_FILENAMES = ("pytest.ini", "tox.ini", "setup.cfg")
-
-
 @dataclass(frozen=True)
 class LaneSpec:
     name: str
@@ -101,7 +98,7 @@ def load_lane_config(ini_path: Path) -> LaneConfig:
 
     lanes = tuple(_parse_lane(parser, name, declared_markers) for name in lane_names)
 
-    _validate_ignore_other_lanes_uniqueness(lanes)
+    validate_ignore_other_lanes_uniqueness(lanes)
 
     subprocess_order_standard = _tokens(
         parser.get("pytest-lanes", "subprocess_order_standard", fallback="")
@@ -109,10 +106,10 @@ def load_lane_config(ini_path: Path) -> LaneConfig:
     subprocess_order_full = _tokens(
         parser.get("pytest-lanes", "subprocess_order_full", fallback="")
     )
-    _validate_subprocess_order_names(
+    validate_subprocess_order_names(
         subprocess_order_standard, lane_names, "subprocess_order_standard"
     )
-    _validate_subprocess_order_names(
+    validate_subprocess_order_names(
         subprocess_order_full, lane_names, "subprocess_order_full"
     )
 
@@ -147,24 +144,6 @@ def _parse_max_workers(parser: configparser.ConfigParser) -> int | None:
         raise LaneConfigError(
             f"[pytest-lanes].max_workers must be an integer (got '{text}')."
         ) from error
-
-
-def load_lane_config_or_none(rootpath: Path) -> LaneConfig | None:
-    """Load lane config from the first rootdir INI file declaring ``[pytest-lanes]``.
-
-    Returns ``None`` when no candidate file declares the section — the plugin
-    stays dormant and pytest behaves as if it were not installed. Malformed
-    sections still raise :class:`LaneConfigError` so mistakes surface loudly.
-    """
-    for filename in CONFIG_FILENAMES:
-        candidate = rootpath / filename
-        if not candidate.exists():
-            continue
-        parser = configparser.ConfigParser()
-        parser.read(candidate, encoding="utf-8")
-        if parser.has_section("pytest-lanes"):
-            return load_lane_config(candidate)
-    return None
 
 
 def _parse_declared_markers(parser: configparser.ConfigParser) -> set[str]:
@@ -249,12 +228,18 @@ def _parse_lane(
 def _parse_divisible(
     parser: configparser.ConfigParser, section: str, lane_name: str
 ) -> bool:
-    text = parser.get(section, "divisible", fallback="").strip()
-    if not text:
+    return parse_divisible_value(
+        parser.get(section, "divisible", fallback="").strip(), lane_name
+    )
+
+
+def parse_divisible_value(value: str, lane_name: str) -> bool:
+    """Interpret a ``divisible`` field value; only ``'files'`` opts a lane in."""
+    if not value:
         return False
-    if text != "files":
+    if value != "files":
         raise LaneConfigError(
-            f"Lane '{lane_name}': divisible only supports 'files' (got '{text}'). "
+            f"Lane '{lane_name}': divisible only supports 'files' (got '{value}'). "
             "Declaring it asserts the lane's files are mutually independent AND "
             "its environment can run duplicated."
         )
@@ -273,6 +258,11 @@ def _parse_lane_numprocesses(
         raise LaneConfigError(
             f"Lane '{lane_name}': lane_numprocesses must be an integer (got '{text}')."
         ) from error
+    return validate_positive_lane_numprocesses(value, lane_name)
+
+
+def validate_positive_lane_numprocesses(value: int, lane_name: str) -> int:
+    """Reject an in-lane xdist worker count that cannot start a single worker."""
     if value <= 0:
         raise LaneConfigError(
             f"Lane '{lane_name}': lane_numprocesses must be positive (got {value})."
@@ -294,7 +284,8 @@ def _parse_env_set(text: str) -> Iterable[tuple[str, str]]:
         yield key, value
 
 
-def _validate_ignore_other_lanes_uniqueness(lanes: tuple[LaneSpec, ...]) -> None:
+def validate_ignore_other_lanes_uniqueness(lanes: tuple[LaneSpec, ...]) -> None:
+    """Reject configs where more than one lane claims the ignore-others role."""
     lanes_with_flag = [
         spec.name for spec in lanes if spec.subprocess_ignore_other_lanes
     ]
@@ -305,11 +296,12 @@ def _validate_ignore_other_lanes_uniqueness(lanes: tuple[LaneSpec, ...]) -> None
         )
 
 
-def _validate_subprocess_order_names(
+def validate_subprocess_order_names(
     order: tuple[str, ...],
     lane_names: tuple[str, ...],
     field_name: str,
 ) -> None:
+    """Reject a subprocess ordering that names a lane the config never declared."""
     known = set(lane_names)
     for name in order:
         if name not in known:
