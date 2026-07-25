@@ -1,0 +1,51 @@
+# Publishes to PyPI via Trusted Publishing (OIDC) — no API token is stored in this repo.
+#
+# One-time setup required on PyPI before the first tag push, under the project's
+# "Publishing" settings, add a trusted publisher:
+#   Publisher:   GitHub
+#   Owner:       HuzPro
+#   Repository:  pytest-lanes
+#   Workflow:    publish.yml
+#   Environment: pypi
+# Until that publisher exists, this job runs fine up to the final step and then
+# fails at "Publish to PyPI" because PyPI will reject the OIDC token exchange.
+
+name: publish
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # A mistyped tag must never publish a different version than it names.
+      - name: Verify tag matches package version
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          tagged_version="${tag#v}"
+          declared_version="$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' src/pytest_lanes/__init__.py)"
+          echo "tag=${tag} tagged_version=${tagged_version} declared_version=${declared_version}"
+          if [ "${tagged_version}" != "${declared_version}" ]; then
+            echo "::error::Tag ${tag} means version ${tagged_version}, but src/pytest_lanes/__init__.py declares '${declared_version}'."
+            exit 1
+          fi
+
+      - run: python -m pip install --upgrade pip
+      - run: pip install build
+      - run: python -m build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

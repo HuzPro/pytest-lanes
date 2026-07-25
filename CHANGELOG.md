@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+- **Ships type information.** The package has always been fully annotated but
+  shipped no `py.typed` marker, so type checkers ignored it downstream
+  (PEP 561). Added, verified present in both the wheel and the sdist, and
+  declared with the `Typing :: Typed` classifier.
+
+- **Packaging and README readiness.** Every README link is now absolute so it
+  resolves on PyPI as well as GitHub (relative links silently 404 on the
+  project page); `twine check` passes on both artifacts. Added a
+  tag-triggered publish workflow using PyPI Trusted Publishing — no API token
+  is stored in the repo — which refuses to publish when the pushed tag does
+  not match the declared package version. Extended the PyPI keywords toward
+  the phrases people actually search (xdist, session fixtures, integration
+  testing, concurrency, test isolation) and added `Documentation`/`Source`
+  project URLs.
+
+- **README rewritten for readers rather than for completeness.** Real terminal
+  screenshots (generated from actual runs, not mocked), an "is this for you?"
+  decision table that names the cases where `pytest-xdist` is the better
+  answer, a command-line reference table, a table of contents, and install +
+  quickstart moved to the top instead of sitting behind 160 lines of
+  justification.
+
 - **Fixed: `--cov` no longer corrupts its data file or fails the run.** Every
   lane child inherited the same `COVERAGE_FILE`, so concurrent writers hit
   `coverage.exceptions.DataError: no such table: other_db.file` and a lane

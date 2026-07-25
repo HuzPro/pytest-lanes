@@ -1,39 +1,88 @@
 # pytest-lanes
 
 [![tests](https://github.com/HuzPro/pytest-lanes/actions/workflows/tests.yml/badge.svg)](https://github.com/HuzPro/pytest-lanes/actions/workflows/tests.yml)
+[![PyPI](https://img.shields.io/pypi/v/pytest-lanes.svg)](https://pypi.org/project/pytest-lanes/)
+[![Python versions](https://img.shields.io/pypi/pyversions/pytest-lanes.svg)](https://pypi.org/project/pytest-lanes/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/HuzPro/pytest-lanes/blob/main/LICENSE)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
-Parallel test execution for pytest suites that **cannot be made
-concurrency-safe** — suites built on service singletons, port-bound daemons,
-shared database schemas, licensed simulators, packaging builds.
+**Parallel pytest for suites that cannot be made concurrency-safe.**
+
+One pytest subprocess per declared **lane**, so your tests only ever overlap
+across environment boundaries *you* chose. The name is the mental model:
+lanes run alongside each other and never merge.
+
+<img src="https://raw.githubusercontent.com/HuzPro/pytest-lanes/main/docs/lane-run.svg" alt="pytest-lanes running four lanes in parallel: db~1of2, db~2of2, unit and api, finishing in 49.10s against 142.51s of serial subprocess time — a 2.90x parallelism ratio" width="100%">
 
 A **lane** is a group of tests that share a marker and an execution
-environment. Instead of distributing individual tests across workers the way
-`pytest-xdist` does, pytest-lanes runs **one pytest subprocess per lane, in
-parallel**. Each lane starts its environment once, runs its own tests in
+environment. Each lane starts its environment once, runs its own tests in
 declaration order inside one clean process, and overlaps only with *other*
-lanes — the only concurrency in the run is the concurrency you declared.
+lanes — so nothing inside a lane ever needs to be made concurrency-proof.
+(The run above is [`examples/bench`](https://github.com/HuzPro/pytest-lanes/tree/main/examples/bench);
+`db~1of2` and `db~2of2` are one declared lane that the planner
+[split in two](#sharding-splitting-a-slow-lane) because the measured
+durations said it would pay.)
 
-The point is not that this is faster than a well-tuned `pytest-xdist`. On a
-suite that is already concurrency-safe and evenly balanced, xdist is
-excellent and usually the right answer — [see below](#should-you-use-this).
-The point is that you get parallelism **without auditing and retrofitting
-every test that touches shared state**, and you keep guarantees xdist
-structurally cannot offer: one environment per group, ordering preserved
-within a group, and working `-s` / `--pdb`.
+### Is this for you?
 
+| Your situation | What to reach for |
+|---|---|
+| Homogeneous, independent, CPU-bound unit tests | **`pytest-xdist`.** It will beat this, and it is one dependency you probably already have. |
+| Grouping needs fit `--dist loadfile` / `loadscope` / `loadgroup` | **`pytest-xdist`.** Try it first — genuinely. |
+| Tests share fixed ports, one DB schema, OS state, a licensed simulator — and retrofitting them all is not happening | **pytest-lanes.** Safe orderings become structural instead of a per-test obligation. |
+| You need setup/teardown per *group*, not per worker | **pytest-lanes.** A lane is the process, so its session fixtures wrap exactly its own tests. |
+| Expensive setup can't be duplicated or serialized cheaply (a 4 GB model, an in-process index, one container) | **pytest-lanes.** |
+| Most of your suite's time sits in one huge test file | **`pytest-xdist`.** A file is a lane's atomic unit, so that file is your floor. |
+
+The honest version of this table, with the reasoning and the xdist
+limitations that are structural rather than incidental, is in
+[Should you use this?](#should-you-use-this).
+
+## Quickstart
+
+```bash
+pip install pytest-lanes[rich]     # rich gives the live progress table above
 ```
-$ pytest .
 
-Lane Test Summary
-> postgres     : PASS (31.82s)
-> timescale    : PASS (16.57s)
-> acceptance   : PASS (1.07s)
-> http_adapter : PASS (5.56s)
-> other        : PASS (30.99s)
-Parallelism ratio: 2.70x
-Sum time without parallelization: 86.00s
-Total time taken: 31.83s
+Then pick a partition. You do not have to write one by hand:
+
+```bash
+pytest --lanes-suggest    # propose a lane config from your layout, run nothing
+pytest . --lanes-auto     # zero config: one lane per test subdirectory
+pytest . --lanes-explain  # show which lane claims each test, run nothing
+pytest .                  # fan out: one subprocess per lane, in parallel
 ```
+
+Paste the suggestion into `pytest.ini` or `pyproject.toml` when you are happy
+with it, and `pytest .` is your parallel command from then on. Run the suite
+once with lanes and `--lanes-suggest` starts proposing a **duration-balanced**
+partition from what it measured, instead of guessing from your directory
+names.
+
+Install without extras if you prefer plain-text progress output; `rich` is
+optional. Nothing changes for anyone who runs `pytest -k foo`, `pytest -m unit`,
+or `pytest path/to/test.py` — orchestration steps aside for targeted runs, and
+with no lane config the plugin is completely dormant.
+
+Two runnable examples:
+[`examples/demo`](https://github.com/HuzPro/pytest-lanes/tree/main/examples/demo)
+(no Docker, 30 seconds) and
+[`examples/containers`](https://github.com/HuzPro/pytest-lanes/tree/main/examples/containers)
+(real Postgres testcontainers, with a benchmark script).
+
+## Contents
+
+- [Should you use this?](#should-you-use-this) — and when not to
+- [Measured results](#measured-results) — this suite, plus four public repos
+- [Defining lanes](#defining-lanes) — zero-config, INI, `pyproject.toml`
+- [Configuration reference](#configuration-reference) — every key
+- [Command-line reference](#command-line-reference) — every flag
+- [How it works](#how-it-works) — classification, fan-out, reporting
+- [Coverage and JUnit in CI](#coverage-and-junit-reports-in-ci)
+- [Hardware requirements](#hardware-requirements) — cores per lane, honestly
+- [Sharding a slow lane](#sharding-splitting-a-slow-lane) and
+  [in-lane xdist](#in-lane-xdist-lane_numprocesses)
+- [Limitations](#limitations) · [FAQ](#faq) · [Roadmap](#roadmap)
 
 ## Should you use this?
 
@@ -163,7 +212,7 @@ already fully concurrency-safe and well-balanced, a tuned xdist lands
 within ~15% — sometimes ahead. The advantage concentrates where suites
 actually live: partially concurrency-safe, with a few expensive
 singletons. To see the mechanics on a small scale, run
-[`examples/containers`](examples/containers) — real Postgres testcontainers,
+[`examples/containers`](https://github.com/HuzPro/pytest-lanes/tree/main/examples/containers) — real Postgres testcontainers,
 lanes vs serial vs xdist, on your own machine.
 
 ### Validated on public suites
@@ -192,14 +241,7 @@ distribution is safe for the suite. On pure CPU suites the two are within
 noise of each other. Full tables, exclusion lists, and methodology notes
 per suite are in the repo history.
 
-## Installation
-
-```bash
-pip install pytest-lanes        # plain-text progress output
-pip install pytest-lanes[rich]  # live progress table via rich
-```
-
-## Quickstart
+## Defining lanes
 
 ### No config file
 
@@ -306,29 +348,27 @@ classifier_fallback = true
 subprocess_ignore_other_lanes = true
 ```
 
-Then:
+If no lane configuration exists, the plugin is dormant and pytest behaves as
+if it were not installed — safe to keep in a shared environment.
 
-```bash
-pytest .                          # fan out: one subprocess per lane, in parallel
-pytest . --lanes-auto             # zero-config: one lane per test subdirectory
-pytest . --lane-def db=tests/db    # define a lane inline, no config file
-pytest . --lanes-full             # standard lanes + every optional lane
-pytest . --lanes-max-workers=2    # cap concurrent lanes (default: CPU count)
-pytest . --lanes-explain          # show which lane claims each test, run nothing
-pytest --lanes-suggest            # print a suggested lane config, run nothing
-pytest --lane=postgres            # one lane, in-process, no fanout
-pytest --lane=postgres,timescale  # multiple lanes, in-process
-pytest -m unit                    # marker-only run; orchestration steps aside
-pytest tests/test_foo.py          # path-targeted run; orchestration steps aside
-pytest . -q --tb=long             # unrecognized flags pass through to every lane
-```
+## Command-line reference
 
-If no `[pytest-lanes]` section exists, the plugin is dormant and pytest
-behaves as if it were not installed — safe to keep in a shared environment.
-
-Two runnable examples: [`examples/demo`](examples/demo) (no Docker, 30
-seconds) and [`examples/containers`](examples/containers) (real Postgres
-testcontainers, with a bench script comparing lanes vs serial vs xdist).
+| Command | What it does |
+|---|---|
+| `pytest .` | Fan out: one subprocess per lane, in parallel. |
+| `pytest . --lanes-auto` | Zero config — one lane per test subdirectory. |
+| `pytest . --lane-def db=tests/db` | Define a lane inline, no config file. Repeatable. |
+| `pytest --lanes-suggest` | Print a suggested lane config and exit. Duration-balanced once data exists. |
+| `pytest . --lanes-explain` | Print which lane claims each test and exit. |
+| `pytest . --lanes-full` | Standard lanes plus every optional lane. |
+| `pytest . --lanes-max-workers=2` | Cap concurrent lanes (default: CPU count). |
+| `pytest . --lanes-no-shard` | Disable shard planning for this run. |
+| `pytest . --lanes-show-output` | Stream every lane's output live, not just failures. |
+| `pytest --lane=postgres` | Run one lane in-process, no fan-out — where `--pdb` works. |
+| `pytest --lane=postgres,timescale` | Several lanes in-process. |
+| `pytest . -s` | Disables capture, so lane output streams live. |
+| `pytest -m unit` / `pytest tests/test_foo.py` | Targeted run; orchestration steps aside. |
+| `pytest . -q --tb=long --junitxml=r.xml` | Unrecognized flags pass through to every lane. |
 
 ## Configuration reference
 
@@ -678,7 +718,7 @@ cash in its `T/2`.
 
 ## Roadmap
 
-Details and sequencing in [ROADMAP.md](ROADMAP.md). v0.2 shipped the
+Details and sequencing in [ROADMAP.md](https://github.com/HuzPro/pytest-lanes/blob/main/ROADMAP.md). v0.2 shipped the
 bounded worker pool, the trust and debugging tools (`--lanes-explain`, a
 live ETA, and reproduce hints), zero-config lanes (`--lane-def` and
 `--lanes-auto`, no config file required), duration-aware scheduling
@@ -766,4 +806,4 @@ in a temp directory and run a real orchestrated `pytest` against it.
 
 ## License
 
-[MIT](LICENSE)
+[MIT](https://github.com/HuzPro/pytest-lanes/blob/main/LICENSE)
