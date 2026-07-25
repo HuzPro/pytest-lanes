@@ -99,7 +99,17 @@ def apply_lane_filter(
     )
 
     for item in items:
-        spec = lane_for_item(item, rootpath, lane_config)
+        try:
+            spec = lane_for_item(item, rootpath, lane_config)
+        except LookupError:
+            # Without a --lane selection, marking is advisory: orchestration
+            # has stepped aside (-k, -m, targeted paths) and plain pytest may
+            # collect tests the lanes never claim. Crashing collection over
+            # those would punish filtering. Under a selection the error
+            # stands: classifiers and subprocess paths disagree.
+            if selected:
+                raise
+            continue
         if spec.marker:
             item.add_marker(marker_factory(spec.marker))
 

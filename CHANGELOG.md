@@ -2,6 +2,16 @@
 
 ## 0.2.0 — unreleased
 
+- **Fixed: filtered runs no longer crash on tests outside every lane.**
+  With a lane config that declares no fallback lane, `pytest . -k <expr>`
+  (or `-m`, or targeted paths — anything that makes orchestration step
+  aside) used to die with an INTERNALERROR `LookupError` as soon as plain
+  pytest collected a test no lane classifies (found running litestar,
+  whose `docs/examples/` tests live outside its lanes). Lane marking is
+  advisory when no `--lane` selection is active: unclassifiable items now
+  run unmarked. Under an explicit `--lane=` selection the error stays
+  loud — there it means classifiers and subprocess paths disagree.
+
 - **Duration-balanced `--lanes-suggest`.** When recorded per-file durations
   exist, `--lanes-suggest` now prints a duration-balanced partition instead
   of the static directory scan: files pool across records (slowest

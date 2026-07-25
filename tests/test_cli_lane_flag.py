@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from pytest_lanes.config import LaneConfig, LaneSpec
 from pytest_lanes.lane_selection import (
     apply_lane_filter,
     collection_args_for_lanes,
@@ -105,6 +106,70 @@ def test_apply_lane_filter_skips_items_outside_selected_lanes() -> None:
 
     assert "skip" in _marker_names(postgres_item)
     assert "skip" not in _marker_names(unit_item)
+
+
+def _no_fallback_lane_config() -> LaneConfig:
+    return LaneConfig(
+        lanes=(
+            LaneSpec(
+                name="postgres",
+                marker="postgres_integration",
+                classifier_path_prefixes=("backend/postgres/",),
+            ),
+        )
+    )
+
+
+def test_apply_lane_filter_leaves_unclassifiable_items_unmarked_without_a_selection() -> (
+    None
+):
+    # Arrange: a config with no fallback lane, and an item (say, an example
+    # under docs/) that no lane classifies. This happens whenever
+    # orchestration steps aside (-k, -m) and plain pytest collects paths the
+    # lanes never claim.
+    config = _no_fallback_lane_config()
+    root = Path("C:/repo")
+    unclaimed_item = _ItemWithMarkers(
+        path=root / "docs" / "examples" / "test_handler.py",
+        nodeid="docs/examples/test_handler.py::t",
+    )
+
+    # Act: marking is advisory when no --lane selection is active - it must
+    # not crash collection over a test the lanes simply do not know.
+    apply_lane_filter(
+        items=[unclaimed_item],
+        rootpath=root,
+        lane_config=config,
+        selected_lanes=(),
+        marker_factory=_MarkerStub,
+    )
+
+    # Assert
+    assert unclaimed_item.added_markers == []
+
+
+def test_apply_lane_filter_stays_loud_for_unclassifiable_items_under_a_selection() -> (
+    None
+):
+    # Arrange: same unclaimed item, but the caller asked for lane semantics
+    # (--lane=postgres, or a lane child selecting its own tests).
+    config = _no_fallback_lane_config()
+    root = Path("C:/repo")
+    unclaimed_item = _ItemWithMarkers(
+        path=root / "docs" / "examples" / "test_handler.py",
+        nodeid="docs/examples/test_handler.py::t",
+    )
+
+    # Act / Assert: an unclassifiable item under an explicit lane selection
+    # means classifiers and subprocess paths disagree - stay loud.
+    with pytest.raises(LookupError, match="docs/examples/test_handler.py"):
+        apply_lane_filter(
+            items=[unclaimed_item],
+            rootpath=root,
+            lane_config=config,
+            selected_lanes=("postgres",),
+            marker_factory=_MarkerStub,
+        )
 
 
 def test_collection_args_restrict_pytest_to_postgres_lane_paths() -> None:
