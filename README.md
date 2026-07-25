@@ -123,6 +123,32 @@ a few expensive singletons. To see the mechanics on a small scale, run
 [`examples/containers`](examples/containers) — real Postgres testcontainers,
 lanes vs serial vs xdist, on your own machine.
 
+### Validated on public suites
+
+The same protocol (medians of 3 timed rounds after warm-up, identical
+test populations and per-repo environment exclusions across every mode,
+Windows 11, 6C/12T) run against four well-known pytest suites, chosen to
+cover the spectrum from container-heavy to pure-CPU. "best xdist" is the
+best-performing safe `--dist` mode for that suite. "lanes-balanced" is
+the config `--lanes-suggest` generates from recorded durations, with
+shared-service tests co-located by hand as its header instructs.
+
+| Suite | serial | best xdist | lanes | lanes tuned | Verdict |
+|---|---:|---:|---:|---:|---|
+| testcontainers-python (7 container modules) | 237.1 | 131.0 | **121.9** | — | **lanes wins.** Container-per-module is the natural lane shape; their own Makefile runs modules serially, so lanes is a drop-in 1.9x. |
+| litestar (`tests/unit`, docker-coupled tests excluded everywhere) | 59.1 | 33.4 | 54.0 | **20.2** (balanced) | **lanes wins, but only the measured config.** The naive 5-lane split leaves one dominant lane (54.0); the duration-balanced partition beats their tuned loadgroup setup 1.65x. |
+| flask-admin (postgres/mongo/azurite services) | 44.3 | 29.8 (loadfile) / 14.4 (load) | 30.3 | 23.4 (sharded) | **split.** At file granularity lanes wins (23.4 vs 29.8). One 19.2s test file is 43% of the suite — test-granular `--dist load` is the only way past that floor, if your suite tolerates it (theirs has no concurrency-safety marks; it happened to pass here). |
+| pydantic (pure CPU control) | 17.9 | 12.7 | 12.2 | 11.7 | **wash, by design.** Homogeneous CPU-bound units are xdist's home turf; lanes matching it is the interesting part (xdist needed `PYTHONHASHSEED` pinned to collect deterministically at all; lanes ran the suite unmodified). |
+
+What the four quadrants say in one paragraph: lanes wins where the suite's
+cost lives in *environments* (containers per module, service singletons) or
+where measured rebalancing can fix a lopsided partition — and the win comes
+without retrofitting a single test. xdist wins when weight concentrates in
+single files (lanes' granularity floor is the file) *and* test-granular
+distribution is safe for the suite. On pure CPU suites the two are within
+noise of each other. Full tables, exclusion lists, and methodology notes
+per suite are in the repo history.
+
 ## Installation
 
 ```bash
@@ -589,6 +615,57 @@ and statically-planned [lane sharding](#sharding-splitting-a-slow-lane).
 It also ships `[tool.pytest-lanes]` configuration in `pyproject.toml` —
 the full lane schema, frozen for 0.2.x. The remaining direction is
 per-lane OS gating (`requires_os`) and release-time discoverability work.
+
+## FAQ
+
+**Why is pytest so slow with testcontainers?**
+Usually because container startup is a session fixture and the whole suite
+runs in one process: every container boots serially before its tests run,
+and nothing overlaps. Lanes run each container-backed test directory in
+its own subprocess, so containers boot and run concurrently — one per
+environment, not one per worker. See
+[Why not pytest-xdist?](#why-not-pytest-xdist).
+
+**Why does pytest-xdist start one database container per worker?**
+Session-scoped fixtures are per *process*, and every xdist worker is a
+process. Eight workers touching Postgres-backed tests means eight
+Postgres containers. Lanes route all tests of an environment into one
+subprocess, so the container starts once. If a single homogeneous lane is
+your bottleneck, `lane_numprocesses` re-introduces xdist *inside* that
+lane only, where you've decided duplication is affordable.
+
+**My tests pass alone but fail under pytest-xdist.**
+That is the concurrency-safety tax: any two tests can now run at the same
+time, so fixed ports, shared schemas, config files, and global state
+collide scheduling-dependently. You can retrofit every such test (dynamic
+ports, unique names, locks) — or draw lanes along the boundaries that
+already exist, so unsafe tests simply never overlap. Lanes is the "run
+the suite you have today" option; see
+[the measured comparison](#measured-results).
+
+**How do I run pytest test directories in parallel as separate processes?**
+That is literally this plugin: declare each directory as a lane (or run
+`pytest . --lanes-auto` for one lane per test subdirectory, or
+`pytest --lanes-suggest` to have the partition generated for you), and
+`pytest .` fans out one subprocess per lane with a merged summary,
+propagated exit codes, and per-lane reproduce commands.
+
+**How is this different from pytest-split or pytest-shard?**
+Those slice a suite across CI *machines* by recorded timing; each node
+still runs its slice serially, and the slices ignore environment
+boundaries. Lanes parallelize on one machine along infrastructure
+boundaries. They compose: shard in CI, lanes within each node.
+
+**Does it work on Windows?**
+Yes — it is developed and benchmarked on Windows 11 and CI-tested on
+Windows and Linux (Python 3.10–3.13). No `fork()`, no POSIX-only process
+management.
+
+**How many CPU cores do I need?**
+Roughly one physical core per concurrent lane; the speedup is bounded by
+`min(lanes, cores)`. On 1–2 core machines lanes queue (bounded worker
+pool) and the run degrades toward serial — see
+[Hardware requirements](#hardware-requirements).
 
 ## Development
 

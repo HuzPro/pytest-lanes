@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0 — unreleased
+## 0.2.0 — 2026-07-25
 
 - **`[tool.pytest-lanes]` configuration in `pyproject.toml`.** The full lane
   schema — index keys, lane tables as `[tool.pytest-lanes.lane.<name>]`,
