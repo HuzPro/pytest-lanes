@@ -416,6 +416,31 @@ divisible = tests
         load_lane_config(ini)
 
 
+def test_loader_parses_tolerate_no_tests_for_fallback_lanes(tmp_path: Path) -> None:
+    ini = _write_ini(
+        tmp_path,
+        """
+[pytest]
+markers =
+\tunit: unit tests
+
+[pytest-lanes]
+lanes = other
+
+[pytest-lanes:other]
+marker = unit
+classifier_fallback = true
+tolerate_no_tests = true
+""",
+    )
+
+    config = load_lane_config(ini)
+
+    lane = config.lane_by_name("other")
+    assert lane is not None
+    assert lane.tolerate_no_tests is True
+
+
 def test_loader_raises_when_max_workers_is_not_an_integer(tmp_path: Path) -> None:
     ini = _write_ini(
         tmp_path,

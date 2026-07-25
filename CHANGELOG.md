@@ -2,6 +2,24 @@
 
 ## 0.2.0 — unreleased
 
+- **Duration-balanced `--lanes-suggest`.** When recorded per-file durations
+  exist, `--lanes-suggest` now prints a duration-balanced partition instead
+  of the static directory scan: files pool across records (slowest
+  measurement wins), pack greedily longest-first into up to
+  `min(cpu_count, 8)` lanes at directory granularity — a directory heavy
+  enough to unbalance the run on its own (>1.3x the per-lane target) is
+  split at file level — and render as a paste-ready INI block with
+  projected seconds per lane, marker declarations, and a `rest` catch-all
+  lane (`classifier_fallback` + `subprocess_ignore_other_lanes` +
+  `tolerate_no_tests`) so tests added after recording run instead of being
+  silently skipped. The header warns that the balance sees durations only:
+  files coupled to the same shared external service must be moved into one
+  lane by hand. Same records, same partition — the packing is fully
+  deterministic. Without recorded data the static scan still prints, now
+  followed by a tip to record durations and re-run for the balanced
+  version. `tolerate_no_tests` is a parsed lane key (an empty tolerant
+  lane succeeds instead of failing the run).
+
 - **Lane sharding (opt-in, statically planned).** A lane that declares
   `divisible = files` — asserting its files are mutually independent AND
   its environment can run duplicated — may be split into two shards when

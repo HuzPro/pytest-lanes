@@ -240,6 +240,9 @@ def _parse_lane(
         subprocess_env_set=env_set_pairs,
         lane_numprocesses=_parse_lane_numprocesses(parser, section, name),
         divisible=_parse_divisible(parser, section, name),
+        tolerate_no_tests=parser.getboolean(
+            section, "tolerate_no_tests", fallback=False
+        ),
     )
 
 

@@ -31,6 +31,7 @@ from pathlib import Path
 import pytest
 
 from pytest_lanes.adhoc import resolve_lane_config_or_none
+from pytest_lanes.balance import balanced_partition, format_balanced_suggestion
 from pytest_lanes.config import LaneConfig
 from pytest_lanes.constants import (
     CHILD_DURATIONS_OUT_ENV,
@@ -67,6 +68,9 @@ from pytest_lanes.suggest import (
 )
 
 ENV_OVERRIDE_ATTR = "_pytest_lanes_env_overrides"
+# Balanced suggestions cap lane count: past this, per-lane fixed costs
+# (startup, collection, imports) eat the marginal parallelism.
+MAX_SUGGESTED_LANES = 8
 
 _lane_config: LaneConfig | None = None
 _rootpath: Path | None = None
@@ -176,12 +180,25 @@ def pytest_cmdline_main(config: pytest.Config) -> int | None:
     is_child_process = os.environ.get(TEST_ORCHESTRATION_CHILD_ENV) == "1"
     if config.getoption("--lanes-suggest") and not is_child_process:
         rootpath = Path(str(config.rootpath))
-        print(format_lane_suggestion(scan_project(rootpath)))
-        advice = format_split_advice(
-            duration_store_for_rootdir(rootpath).recorded_lane_records()
+        records = duration_store_for_rootdir(rootpath).recorded_lane_records()
+        balanced = balanced_partition(
+            records, lane_count=min(detected_cpu_count(), MAX_SUGGESTED_LANES)
         )
+        if balanced:
+            # Recorded per-file durations beat static guessing: propose a
+            # partition whose lanes finish at roughly the same time.
+            print(format_balanced_suggestion(balanced))
+            return 0
+
+        print(format_lane_suggestion(scan_project(rootpath)))
+        advice = format_split_advice(records)
         if advice:
             print(f"\n{advice}")
+        print(
+            "\nTip: run once with a lane config (--lanes-auto or the block "
+            "above) so per-file durations are recorded; --lanes-suggest then "
+            "proposes a duration-balanced partition."
+        )
         return 0
 
     mode = orchestration_mode(config)

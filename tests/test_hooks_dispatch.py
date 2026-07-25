@@ -310,16 +310,11 @@ def test_xdist_worker_processes_never_start_their_own_recorder(
     assert hooks._child_recorder is None
 
 
-def test_lanes_suggest_appends_split_advice_when_recorded_data_exists(
+def test_lanes_suggest_prefers_balanced_partition_when_recorded_data_exists(
     tmp_path: Path, capsys
 ) -> None:
     from pytest_lanes.durations import LaneRecord, duration_store_for_rootdir
 
-    for directory in ("db_tests", "unit_tests"):
-        (tmp_path / directory).mkdir()
-        (tmp_path / directory / "test_sample.py").write_text(
-            "def test_ok():\n    assert True\n", encoding="utf-8"
-        )
     duration_store_for_rootdir(tmp_path).record(
         {
             "db_tests": LaneRecord(
@@ -327,7 +322,11 @@ def test_lanes_suggest_appends_split_advice_when_recorded_data_exists(
                 startup=2.0,
                 collect=1.0,
                 files=(("db_tests/test_a.py", 14.0), ("db_tests/test_b.py", 13.0)),
-            )
+            ),
+            "unit_tests": LaneRecord(
+                total=6.0,
+                files=(("unit_tests/test_u.py", 5.0),),
+            ),
         }
     )
     config = _FakeConfig(
@@ -342,8 +341,33 @@ def test_lanes_suggest_appends_split_advice_when_recorded_data_exists(
 
     assert result == 0
     out = capsys.readouterr().out
-    assert "Split advice" in out
-    assert "db_tests/test_a.py" in out
+    assert "balanced suggestion" in out
+    assert "[pytest-lanes:rest]" in out
+    assert "projected:" in out
+    assert "# pytest-lanes suggestion - generated" not in out
+
+
+def test_lanes_suggest_without_recorded_data_prints_static_scan_and_tip(
+    tmp_path: Path, capsys
+) -> None:
+    for directory in ("db_tests", "unit_tests"):
+        (tmp_path / directory).mkdir()
+        (tmp_path / directory / "test_sample.py").write_text(
+            "def test_ok():\n    assert True\n", encoding="utf-8"
+        )
+    config = _FakeConfig(
+        rootpath=tmp_path, invocation_args=(".", "--lanes-suggest"), suggest=True
+    )
+
+    with (
+        _without_child_env_var(),
+        patch.object(hooks, "run_lane_commands"),
+    ):
+        hooks.pytest_cmdline_main(config)
+
+    out = capsys.readouterr().out
+    assert "# pytest-lanes suggestion - generated" in out
+    assert "duration-balanced" in out
 
 
 def _seeded_divisible_project(tmp_path: Path):
