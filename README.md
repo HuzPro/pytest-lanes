@@ -1,8 +1,8 @@
 # pytest-lanes
 
 [![tests](https://github.com/HuzPro/pytest-lanes/actions/workflows/tests.yml/badge.svg)](https://github.com/HuzPro/pytest-lanes/actions/workflows/tests.yml)
-[![PyPI](https://img.shields.io/pypi/v/pytest-lanes.svg)](https://pypi.org/project/pytest-lanes/)
-[![Python versions](https://img.shields.io/pypi/pyversions/pytest-lanes.svg)](https://pypi.org/project/pytest-lanes/)
+[![PyPI](https://img.shields.io/pypi/v/pytest-lanes.svg?cacheSeconds=3600)](https://pypi.org/project/pytest-lanes/)
+[![Python versions](https://img.shields.io/pypi/pyversions/pytest-lanes.svg?cacheSeconds=3600)](https://pypi.org/project/pytest-lanes/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/HuzPro/pytest-lanes/blob/main/LICENSE)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
