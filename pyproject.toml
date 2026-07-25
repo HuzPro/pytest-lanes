@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "pytest-lanes"
 dynamic = ["version"]
-description = "Lane-based parallel test orchestration for pytest suites dominated by heavy infrastructure: database containers, service singletons, builds."
+description = "Parallel pytest for suites that cannot be made concurrency-safe: one subprocess per declared lane, so tests only overlap across environment boundaries you choose."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"

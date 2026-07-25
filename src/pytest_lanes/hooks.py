@@ -44,6 +44,7 @@ from pytest_lanes.explain import format_lane_explanation
 from pytest_lanes.invocation import (
     invocation_args,
     passthrough_args_for_lanes,
+    wants_live_lane_output,
 )
 from pytest_lanes.lane_selection import (
     apply_lane_filter,
@@ -174,6 +175,15 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=False,
         help="Disable shard planning for this run; lanes run whole.",
     )
+    group.addoption(
+        "--lanes-show-output",
+        action="store_true",
+        default=False,
+        help=(
+            "Stream every lane's raw output live instead of showing it only "
+            "for failed lanes. Implied by -s / --capture=no."
+        ),
+    )
 
 
 def pytest_cmdline_main(config: pytest.Config) -> int | None:
@@ -225,6 +235,11 @@ def pytest_cmdline_main(config: pytest.Config) -> int | None:
     )
     rootpath = Path(str(config.rootpath))
     duration_store = duration_store_for_rootdir(rootpath)
+    # Disabling capture is a request to see output now, so honour -s the way
+    # a developer expects rather than only the explicit flag.
+    show_lane_output = bool(
+        config.getoption("--lanes-show-output")
+    ) or wants_live_lane_output(args)
 
     if config.getoption("--lanes-no-shard"):
         commands = build_lane_commands(
@@ -233,7 +248,10 @@ def pytest_cmdline_main(config: pytest.Config) -> int | None:
         if not commands:
             return None
         return run_lane_commands(
-            commands, max_workers=max_workers, duration_store=duration_store
+            commands,
+            max_workers=max_workers,
+            duration_store=duration_store,
+            show_lane_output=show_lane_output,
         )
 
     plan_path = shard_plan_path_for_rootdir(rootpath)
@@ -261,6 +279,7 @@ def pytest_cmdline_main(config: pytest.Config) -> int | None:
         duration_store=duration_store,
         shard_parents=dict(plan.shard_parents) or None,
         reproduce_overrides=dict(plan.reproduce_lines) or None,
+        show_lane_output=show_lane_output,
     )
 
 

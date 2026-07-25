@@ -2,16 +2,24 @@
 
 [![tests](https://github.com/HuzPro/pytest-lanes/actions/workflows/tests.yml/badge.svg)](https://github.com/HuzPro/pytest-lanes/actions/workflows/tests.yml)
 
-Lane-based parallel test orchestration for pytest suites whose cost is
-dominated by heavy infrastructure: database containers, service singletons,
-port-bound daemons, packaging builds.
+Parallel test execution for pytest suites that **cannot be made
+concurrency-safe** — suites built on service singletons, port-bound daemons,
+shared database schemas, licensed simulators, packaging builds.
 
 A **lane** is a group of tests that share a marker and an execution
 environment. Instead of distributing individual tests across workers the way
 `pytest-xdist` does, pytest-lanes runs **one pytest subprocess per lane, in
 parallel**. Each lane starts its environment once, runs its own tests in
-order inside one clean process, and overlaps only with *other* lanes — the
-only concurrency in the run is the concurrency you declared.
+declaration order inside one clean process, and overlaps only with *other*
+lanes — the only concurrency in the run is the concurrency you declared.
+
+The point is not that this is faster than a well-tuned `pytest-xdist`. On a
+suite that is already concurrency-safe and evenly balanced, xdist is
+excellent and usually the right answer — [see below](#should-you-use-this).
+The point is that you get parallelism **without auditing and retrofitting
+every test that touches shared state**, and you keep guarantees xdist
+structurally cannot offer: one environment per group, ordering preserved
+within a group, and working `-s` / `--pdb`.
 
 ```
 $ pytest .
@@ -27,32 +35,59 @@ Sum time without parallelization: 86.00s
 Total time taken: 31.83s
 ```
 
-## Why not pytest-xdist?
+## Should you use this?
 
-`pytest-xdist` distributes individual tests across a pool of identical
-workers. That is the right model when your tests are homogeneous,
-independent, and CPU-bound. It has three structural costs when your suite's
-cost lives in *environments*:
+**Use `pytest-xdist` if** your tests are homogeneous, independent and
+CPU-bound; or if the grouping you need fits `--dist loadfile` /
+`--dist loadscope` / `--dist loadgroup` with `@pytest.mark.xdist_group`.
+That last mode covers a lot of ground — named groups that never run
+concurrently with themselves — and it is one dependency you probably
+already have. Try it first. Honestly.
 
-- **Per-worker infrastructure.** Session/singleton fixtures live per
-  process, so every worker that touches a Postgres-backed test starts its
-  own container. The most expensive part of the suite gets multiplied, not
-  divided.
-- **Concurrency-safety becomes a per-test obligation.** Any test touching a
-  process-global resource — a fixed port, a config file, OS registry state,
-  a hardware device — can be scheduled alongside any other test. Either you
-  audit and retrofit every such test (dynamic ports, unique paths, locks) or
-  you get scheduling-dependent failures. Lanes make the safe orderings
-  structural: tests only ever overlap with tests from other lanes.
+**Consider pytest-lanes when one of these actually applies:**
+
+- **Retrofitting your tests for concurrency-safety is not on the table.**
+  Any test touching a process-global resource — a fixed port, a shared
+  schema, a config file, OS registry state, a hardware device — can be
+  scheduled alongside any other test under a worker pool. Either you audit
+  and fix every one of them, or you accept scheduling-dependent failures.
+  Lanes make the safe orderings structural instead: tests only ever overlap
+  with tests from *other* lanes, and nothing inside a lane needs to be made
+  concurrency-proof.
+- **You need a fixture lifecycle per group, not per worker.** xdist's unit
+  of isolation is the worker, and groups are assigned to workers
+  round-robin, so several unrelated groups share one process and its
+  session state. A lane *is* the process: its session fixtures set up and
+  tear down around exactly its own tests.
+- **The expensive setup cannot be shared or duplicated cheaply.** The
+  documented xdist recipe for a single shared fixture
+  ([`tmp_path_factory` + `FileLock`](https://pytest-xdist.readthedocs.io/en/stable/how-to.html))
+  can only hand a small serialized value between workers — it cannot share a
+  4 GB model, an in-process index, or a daemon holding a fixed port. Note
+  that Python's testcontainers has no container-reuse support at all
+  ([open since 2020](https://github.com/testcontainers/testcontainers-python/issues/109)).
+- **You want `-s` and `--pdb` to keep working.** xdist's own docs list both
+  as unsupported, because worker stdout cannot be transferred. A lane is a
+  plain pytest subprocess, so `-s` streams live; and `pytest --lane=<name>`
+  runs one lane in-process, where `--pdb` behaves normally.
 - **Every worker collects everything.** Each xdist worker imports and
   collects the full suite before running anything (~8s per process on the
   suite below); lane subprocesses collect only their own paths.
 
-Lane granularity is parallelism drawn along the infrastructure boundaries
-you already have, expressed as config — and nothing inside a lane ever needs
-to be made concurrency-proof.
+**A cost worth stating plainly:** the *boot* time of containers is usually
+not the problem people assume it is. Eight workers starting eight Postgres
+containers start them *concurrently* — roughly one container's wall-clock
+latency, not eight. Per-worker duplication genuinely hurts when setup is
+**serialized CPU work** (migrations, fixture seeding, loading a model or
+index), when it **exhausts a resource** (memory, connection limits, disk),
+or when the resource is **irreducibly singleton** (one licensed simulator,
+one fixed port, one piece of hardware). If your containers just boot fast
+and your tests are independent, xdist will serve you fine.
 
 ### Measured results
+
+Speed is not the argument for this plugin, but it should at least not cost
+you any — so here is the data, including the cases where it loses.
 
 Measured 2026-07 on the ~2,430-test production suite this plugin was
 extracted from (five lanes: two Docker-container database lanes, an
@@ -72,10 +107,12 @@ serial baseline measured once. Windows 11, AMD Ryzen 5 7600 (6C/12T),
 
 Read it honestly:
 
-- **Lanes: ~2.1x over serial and 1.15x–1.3x over pytest-xdist**, depending
-  on how well you tune xdist's `--dist` mode. Every lanes run beat every
-  xdist run (lanes max 33.4s < loadfile min 36.1s), with the lowest
-  variance of any mode and no worker-count tuning.
+- **Lanes: ~2.1x over serial, and on this suite a modest 1.15x–1.3x over
+  pytest-xdist** depending on how well xdist's `--dist` mode is tuned. Treat
+  that second number as "no worse", not as a selling point: it is one suite,
+  on one machine, and the [public-suite results](#validated-on-public-suites)
+  below include a case where xdist wins outright. What is consistent here is
+  the low variance and the absence of worker-count tuning.
 - **The "make xdist do lanes" configuration is the interesting row.**
   Auto-applying an `xdist_group` mark per lane (the closest xdist
   equivalent of this plugin) was the *slowest* parallel mode — atomic
@@ -104,7 +141,10 @@ Decomposed, using the run above:
    of the win over serial pytest, and any parallel scheme gets some of it.
 2. **Infrastructure paid once per environment, not once per worker** — the
    lane model starts one Postgres and one Timescale container per run;
-   worker pools start one per worker that touches them.
+   worker pools start one per worker that touches them. On this suite the
+   cost of that duplication is memory and connection pressure rather than
+   boot latency (containers boot concurrently), so do not expect this term
+   to dominate on every suite.
 3. **Scoped collection** — a full collection pass costs ~8s of the ~32s
    budget on this suite. Every xdist worker performs it; each lane
    subprocess collects only its own paths (0.8s of pytest time for the
@@ -114,12 +154,15 @@ Decomposed, using the run above:
    `loadgroup` row above for what happens when the ordering is almost —
    but not exactly — preserved.
 
-The honest caveats: maximum parallelism equals your lane count, a single
+The honest caveats: maximum parallelism equals your lane count; a single
 slow lane bounds the wall-clock (the 32s postgres lane above *is* the wall
-time), and on a suite that is already fully concurrency-safe and
-well-balanced, a tuned xdist lands within ~15% of lanes. The advantage
-concentrates where suites actually live: partially concurrency-safe, with
-a few expensive singletons. To see the mechanics on a small scale, run
+time); the atomic unit is a **file**, so a suite whose weight sits in one
+huge test file has a floor lanes cannot get under (xdist's test-level
+distribution can, if your suite tolerates it); and on a suite that is
+already fully concurrency-safe and well-balanced, a tuned xdist lands
+within ~15% — sometimes ahead. The advantage concentrates where suites
+actually live: partially concurrency-safe, with a few expensive
+singletons. To see the mechanics on a small scale, run
 [`examples/containers`](examples/containers) — real Postgres testcontainers,
 lanes vs serial vs xdist, on your own machine.
 
@@ -404,11 +447,18 @@ fixtures, its own containers, its own ports — parallelism without any shared
 mutable state. Setting `PYTEST_LANES_CHILD=1` in your own shell disables the
 plugin entirely (useful for benchmarking the serial baseline).
 
-Set `PYTEST_LANES_SHOW_OUTPUT=1` to stream every lane's raw output live in
-addition to the progress table. A failing lane's full output is always
-printed after the run, and each failed row in the Lane Test Summary is
-followed by a `reproduce: pytest --lane=<name>` line — the exact command
-to re-run that lane in isolation for debugging.
+`-s` (or `--capture=no`) works as it does in plain pytest: capture is off
+in the lane children and their output streams live, prefixed per lane.
+`--lanes-show-output` does the same without disabling capture, when you
+want to watch lanes progress rather than see `print()` output; the
+`PYTEST_LANES_SHOW_OUTPUT=1` environment variable is equivalent, for CI
+jobs that cannot change the pytest command. A failing lane's full output is
+always printed after the run, and each failed row in the Lane Test Summary
+is followed by a `reproduce: pytest --lane=<name>` line — the exact command
+to re-run that lane in isolation. That command runs **in-process**, which
+is where `--pdb` works normally (a debugger cannot attach to a lane
+subprocess, and xdist has the same limitation with no in-process escape
+hatch).
 
 To see the partition before committing to a run, `--lanes-explain`
 prints one line per collected test — the lane that claims it and the
@@ -440,19 +490,28 @@ those fixtures are process-wide singletons that were never designed for
 multi-worker access.
 
 **Poor fit** — thousands of homogeneous, independent, CPU-bound unit tests
-with no shared infrastructure. That is exactly what `pytest-xdist` is for.
-The two are complementary: lanes for environment isolation, xdist for
-test-level spreading within an environment — and the built-in
-`lane_numprocesses` key does exactly that inside a single homogeneous
-lane (see [Sharding: splitting a slow lane](#sharding-splitting-a-slow-lane)).
+with no shared infrastructure. That is exactly what `pytest-xdist` is for,
+and it will beat this. Also a poor fit when most of your suite's time sits
+in one very large test file: a file is a lane's atomic unit, so that file
+becomes your floor. The two tools are complementary — lanes for environment
+isolation, xdist for test-level spreading within an environment — and the
+built-in `lane_numprocesses` key does exactly that inside a single
+homogeneous lane (see
+[Sharding: splitting a slow lane](#sharding-splitting-a-slow-lane)).
 
 ### Prior art
 
+Read this table as "what else to try first", not as a list of things this
+plugin beats.
+
 | Tool | Granularity | Difference |
 |---|---|---|
-| `pytest-xdist` | per-test | Fastest option for homogeneous CPU-bound suites. Per-process fixtures duplicate per worker, every worker collects the full suite, and process-global state must be made concurrency-safe test by test — see [Measured results](#measured-results) for how its `--dist` modes compare. |
-| `pytest-split` / `pytest-shard` | per-CI-node | Splits a suite across machines by timing for CI sharding; no local parallelism, no environment alignment. |
-| `tox -p` / `nox` | per-environment | Parallel *virtualenvs* — each env reinstalls dependencies, output is siloed per env, and selection lives outside pytest. pytest-lanes runs in one env, one command, one aggregated summary. |
+| `pytest-xdist` | per-test | The default answer, and the fastest option for homogeneous CPU-bound suites. `--dist loadgroup` + `xdist_group` marks covers much of what lanes do for scheduling. What it cannot do: give each group its own process lifecycle (groups share workers round-robin), preserve grouping without per-test marks, or support `-s`/`--pdb` (its docs list both as unsupported). |
+| `pytest-isolated` | per-marked-group subprocess | The closest design to this one — grouped subprocesses with per-group fixtures and ini config. It runs its groups **serially**, so it buys isolation but no parallelism. |
+| `pytest-shared-session-scope` | per-fixture | Attacks the duplicated-session-fixture problem directly by sharing one fixture's value across xdist workers. Lighter than lanes if fixture duplication is your *only* problem and the value serializes. |
+| `pytest-split` / `pytest-shard` | per-CI-node | Splits a suite across machines by timing; no local parallelism, no environment alignment. Composes with lanes: shard across nodes, lanes within a node. |
+| `tox -p` / `nox` | per-environment | Parallel *virtualenvs* — genuinely overlapping subprocesses with aggregated exit codes today. Each env reinstalls dependencies, output is siloed per env, and selection lives outside pytest. |
+| Pants / Bazel / Buck2 | per-target batch | Build systems that already do config-declared test batching in parallel, with resource slots to avoid port/DB collisions. Strictly more capable; vastly more adoption cost. If you are already on one, use it. |
 | shell scripts / `make -j` | per-command | No classification, no marker application, no passthrough args, no unified failure report. |
 
 ## Hardware requirements
@@ -620,19 +679,25 @@ per-lane OS gating (`requires_os`) and release-time discoverability work.
 
 **Why is pytest so slow with testcontainers?**
 Usually because container startup is a session fixture and the whole suite
-runs in one process: every container boots serially before its tests run,
-and nothing overlaps. Lanes run each container-backed test directory in
-its own subprocess, so containers boot and run concurrently — one per
-environment, not one per worker. See
-[Why not pytest-xdist?](#why-not-pytest-xdist).
+runs in one process: each container boots, its tests run, the next boots,
+and nothing overlaps. Lanes run each container-backed test directory in its
+own subprocess, so those setup-then-test sequences overlap. Try
+`pytest -n auto --dist loadfile` first — if per-worker duplication is
+affordable for you, that is less machinery. See
+[Should you use this?](#should-you-use-this).
 
 **Why does pytest-xdist start one database container per worker?**
 Session-scoped fixtures are per *process*, and every xdist worker is a
-process. Eight workers touching Postgres-backed tests means eight
-Postgres containers. Lanes route all tests of an environment into one
-subprocess, so the container starts once. If a single homogeneous lane is
-your bottleneck, `lane_numprocesses` re-introduces xdist *inside* that
-lane only, where you've decided duplication is affordable.
+process, so eight workers touching Postgres-backed tests means eight
+Postgres containers. Whether that costs you anything depends: they boot
+concurrently, so wall-clock boot is roughly one container, not eight. It
+hurts when setup is serialized CPU work (migrations, seeding), when eight
+copies exhaust memory or connection limits, or when the resource is a
+singleton that cannot be duplicated at all. In those cases lanes route
+every test of an environment into one subprocess, so the setup happens
+once. If a single homogeneous lane is then your bottleneck,
+`lane_numprocesses` re-introduces xdist *inside* that lane only, where
+you've decided duplication is affordable.
 
 **My tests pass alone but fail under pytest-xdist.**
 That is the concurrency-safety tax: any two tests can now run at the same

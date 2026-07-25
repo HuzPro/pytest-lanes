@@ -9,6 +9,8 @@ their request flows through to a single pytest invocation.
 
 from __future__ import annotations
 
+import re
+
 SELECTION_FLAGS = frozenset(
     {
         "-k",
@@ -19,6 +21,13 @@ SELECTION_FLAGS = frozenset(
         "--failed-first",
     }
 )
+
+# Asking pytest not to capture output is asking to see it *now*; the parent
+# honours that by streaming each lane child live instead of folding its
+# output into the end-of-run summary.
+_CAPTURE_DISABLING_ARGS = frozenset({"-s", "--capture=no", "--capture"})
+_SHORT_OPTION_CLUSTER = re.compile(r"^-[a-zA-Z]+$")
+_CAPTURE_DISABLING_SHORT_OPTION = "s"
 
 
 def invocation_args(config: object) -> tuple[str, ...]:
@@ -45,6 +54,22 @@ def has_custom_selection(invocation_args_value: tuple[str, ...]) -> bool:
         if arg == "--lane" or arg.startswith("--lane="):
             return True
 
+    return False
+
+
+def wants_live_lane_output(invocation_args_value: tuple[str, ...]) -> bool:
+    """Did the caller disable capture — i.e. ask to see output as it happens?
+
+    ``-s`` also arrives bundled with other short options (``-sv``, ``-xs``),
+    which is how it is most often typed.
+    """
+    for arg in invocation_args_value:
+        if arg in _CAPTURE_DISABLING_ARGS:
+            return True
+        if _SHORT_OPTION_CLUSTER.match(arg) and (
+            _CAPTURE_DISABLING_SHORT_OPTION in arg
+        ):
+            return True
     return False
 
 

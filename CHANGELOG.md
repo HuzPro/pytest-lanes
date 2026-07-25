@@ -1,5 +1,36 @@
 # Changelog
 
+## Unreleased
+
+- **`-s` / `--capture=no` now streams lane output live**, as it does in plain
+  pytest. Previously live output was reachable only through the
+  undocumented `PYTEST_LANES_SHOW_OUTPUT=1` environment variable, so `-s`
+  ran but its `print()` output was swallowed for every passing lane — the
+  exact output the flag exists to show. Bundled short options (`-sv`,
+  `-xs`) count too. Added `--lanes-show-output` for streaming without
+  disabling capture; the environment variable still works.
+
+- **Repositioned the documentation.** The README no longer leads with being
+  faster than pytest-xdist — on a concurrency-safe, balanced suite xdist is
+  usually the right tool and is now recommended as the thing to try first,
+  including `--dist loadgroup`, which covers much of what lanes do for
+  scheduling. The case for lanes is stated as what it is: parallelism
+  without retrofitting tests for concurrency-safety, a fixture lifecycle
+  per group rather than per worker, and working `-s`/`--pdb`. Prior art now
+  names the closest alternatives (`pytest-isolated`,
+  `pytest-shared-session-scope`, Pants/Bazel/Buck2) and says when to prefer
+  them.
+
+- **Corrected an overstated claim.** The docs said per-worker infrastructure
+  means "the most expensive part of the suite gets multiplied, not divided".
+  That is wrong for container *boot*, which happens concurrently across
+  workers — eight Postgres containers cost roughly one container's latency,
+  not eight. Duplication actually hurts when setup is serialized CPU work
+  (migrations, seeding, loading a model or index), when copies exhaust
+  memory or connection limits, or when the resource is irreducibly
+  singleton. Also documented the file-granularity floor: a suite whose time
+  sits in one huge test file cannot be split further by lanes.
+
 ## 0.2.0 — 2026-07-25
 
 - **`[tool.pytest-lanes]` configuration in `pyproject.toml`.** The full lane

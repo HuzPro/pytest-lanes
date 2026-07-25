@@ -34,6 +34,7 @@ class _FakeConfig:
         lanes_auto: bool = False,
         suggest: bool = False,
         no_shard: bool = False,
+        show_output: bool = False,
     ) -> None:
         self.rootpath = rootpath
         self._full = full
@@ -44,6 +45,7 @@ class _FakeConfig:
         self._lanes_auto = lanes_auto
         self._suggest = suggest
         self._no_shard = no_shard
+        self._show_output = show_output
         self.invocation_params = type("InvocationParams", (), {"args": invocation_args})
 
     def getoption(self, option_name: str) -> object:
@@ -63,6 +65,8 @@ class _FakeConfig:
             return self._suggest
         if option_name == "--lanes-no-shard":
             return self._no_shard
+        if option_name == "--lanes-show-output":
+            return self._show_output
         return False
 
 
@@ -86,6 +90,57 @@ def test_targeted_path_returns_none_and_does_not_call_run_lane_commands() -> Non
 
     assert result is None
     mock_run.assert_not_called()
+
+
+def test_disabling_capture_streams_lane_output_live() -> None:
+    # Given `pytest . -s`, the developer asked to see output as it happens;
+    # lanes must stream their children instead of folding output into the
+    # summary and showing it only for failures.
+    config = _FakeConfig(rootpath=Path("C:/repo"), invocation_args=(".", "-s"))
+
+    with (
+        _without_child_env_var(),
+        patch.object(hooks, "run_lane_commands", return_value=0) as mock_run,
+        patch.object(
+            hooks, "_load_lane_config_for", return_value=_example_lane_config()
+        ),
+    ):
+        hooks.pytest_cmdline_main(config)
+
+    assert mock_run.call_args.kwargs["show_lane_output"] is True
+
+
+def test_explicit_show_output_flag_streams_lane_output_live() -> None:
+    # Given the flag, live streaming happens even though capture is on.
+    config = _FakeConfig(
+        rootpath=Path("C:/repo"), invocation_args=(".",), show_output=True
+    )
+
+    with (
+        _without_child_env_var(),
+        patch.object(hooks, "run_lane_commands", return_value=0) as mock_run,
+        patch.object(
+            hooks, "_load_lane_config_for", return_value=_example_lane_config()
+        ),
+    ):
+        hooks.pytest_cmdline_main(config)
+
+    assert mock_run.call_args.kwargs["show_lane_output"] is True
+
+
+def test_ordinary_run_keeps_lane_output_folded_into_the_summary() -> None:
+    config = _FakeConfig(rootpath=Path("C:/repo"), invocation_args=(".", "-q"))
+
+    with (
+        _without_child_env_var(),
+        patch.object(hooks, "run_lane_commands", return_value=0) as mock_run,
+        patch.object(
+            hooks, "_load_lane_config_for", return_value=_example_lane_config()
+        ),
+    ):
+        hooks.pytest_cmdline_main(config)
+
+    assert mock_run.call_args.kwargs["show_lane_output"] is False
 
 
 def test_plain_pytest_dot_dispatches_five_standard_lanes() -> None:

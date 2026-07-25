@@ -60,9 +60,12 @@ def run_lane_commands(
     duration_store: DurationStore | None = None,
     shard_parents: Mapping[str, str] | None = None,
     reproduce_overrides: Mapping[str, tuple[str, ...]] | None = None,
+    show_lane_output: bool = False,
 ) -> int:
     start_wall = time.perf_counter()
-    show_lane_output = os.environ.get(SHOW_LANE_OUTPUT_ENV) == "1"
+    # The env var predates the flag and still works, for CI jobs that want
+    # every lane's output without changing the pytest command.
+    show_lane_output = show_lane_output or os.environ.get(SHOW_LANE_OUTPUT_ENV) == "1"
     store = duration_store if duration_store is not None else InMemoryDurationStore()
     recorded_durations = store.recorded_durations()
     reporter = LaneProgressReporter(expected_durations=recorded_durations)
