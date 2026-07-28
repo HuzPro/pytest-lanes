@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.1 - 2026-07-28
+
+Documentation only, no code changes.
+
+- **The README is now a short front page.** Everything deeper moved to
+  [docs/GUIDE.md](https://github.com/HuzPro/pytest-lanes/blob/main/docs/GUIDE.md).
+  Comments across the codebase trimmed to match.
+
 ## 0.3.0 - 2026-07-25
 
 First published release. 0.2.0 was tagged but never uploaded; everything in
