@@ -1,19 +1,4 @@
-"""Per-lane coverage data files and parent-side report generation.
-
-``--cov`` reaches every lane child through the passthrough argv, and every
-child then writes the same ``.coverage`` SQLite file. Concurrent writers
-corrupt it: coverage.py raises ``DataError: no such table: other_db.file``,
-which surfaces as a lane failure even when every test passed. Worse, each
-child would also emit its own partial report.
-
-The fix is a three-part contract this module supplies the pieces for: point
-each child at its own ``COVERAGE_FILE``, strip the report requests from the
-child argv so only measurement happens there, and hand the parent the
-``coverage`` commands to run once the data files have been combined.
-
-Everything here is pure - argv tuples and strings in, argv tuples and
-strings out. Combining and running belong to the orchestration shell.
-"""
+"""Per-lane coverage data files and parent-side report generation."""
 
 from __future__ import annotations
 
@@ -28,8 +13,7 @@ _COV_FLAG = "--cov"
 _COV_REPORT_FLAG = "--cov-report"
 _VALUE_SEPARATOR = "="
 _OPTION_SEPARATOR = "-"
-# coverage.py's own convention: ``combine`` discovers parallel data files by
-# this prefix, so a lane file named anything else would never be combined.
+# ``coverage combine`` discovers parallel data files by this prefix.
 _DATA_FILE_PREFIX = ".coverage."
 _DESTINATION_SEPARATOR = ":"
 _OUTPUT_FILE_FLAG = "-o"
@@ -43,23 +27,13 @@ def is_coverage_requested(args: tuple[str, ...]) -> bool:
 
 
 def lane_coverage_env(lane_name: str, data_dir: Path) -> tuple[tuple[str, str], ...]:
-    """The environment override that isolates one lane's measurements.
-
-    Returned as name/value pairs rather than applied, so the caller decides
-    which child environment it belongs to.
-    """
+    """The environment override that isolates one lane's measurements."""
     data_file = data_dir / f"{_DATA_FILE_PREFIX}{_filename_token(lane_name)}"
     return ((COVERAGE_DATA_ENV, str(data_file)),)
 
 
 def args_without_coverage_reports(args: tuple[str, ...]) -> tuple[str, ...]:
-    """The child argv with every report request removed, measurement intact.
-
-    A child that reports describes only the tests its own lane ran, so N
-    lanes print N partial summaries and overwrite each other's files.
-    ``--cov`` and the other measurement options stay: without them the
-    child collects no data for the parent to combine.
-    """
+    """The child argv with every report request removed, measurement intact."""
     dropped = {
         index for request in _report_requests(args) for index in request.token_indices
     }
@@ -71,12 +45,7 @@ def requested_coverage_reports(args: tuple[str, ...]) -> tuple[str, ...]:
 
 
 def coverage_report_command(report: str) -> tuple[str, ...] | None:
-    """The ``coverage`` argv tail that produces one pytest-cov report.
-
-    Absent when the spec is not one this module models: the parent skips
-    that report rather than guessing and emitting the wrong thing, and one
-    exotic spec never costs the run its other reports.
-    """
+    """The ``coverage`` argv tail that produces one pytest-cov report."""
     kind_name, _, destination = report.partition(_DESTINATION_SEPARATOR)
     kind = _REPORT_KINDS.get(kind_name)
     if kind is None:
@@ -90,20 +59,14 @@ def coverage_report_command(report: str) -> tuple[str, ...] | None:
 
 @dataclass(frozen=True)
 class _ReportKind:
-    """How one pytest-cov report kind is spelled as a coverage command.
-
-    An empty ``destination_flag`` marks a kind that accepts no destination;
-    anything after the colon there is a modifier this module does not model.
-    """
+    """How one pytest-cov report kind is spelled as a coverage command."""
 
     command: tuple[str, ...]
     destination_flag: str = ""
 
 
 _REPORT_KINDS: Mapping[str, _ReportKind] = {
-    # An empty spec is the plain terminal report *here*, but note that
-    # pytest-cov reads a bare "--cov-report=" as asking for no report at
-    # all: a caller honouring that must drop empty specs before asking.
+    # pytest-cov reads a bare "--cov-report=" as no-report; drop empty specs first.
     "": _ReportKind(("report",)),
     "term": _ReportKind(("report",)),
     "term-missing": _ReportKind(("report", "--show-missing")),
@@ -124,11 +87,7 @@ class _ReportRequest:
 
 
 def _report_requests(args: tuple[str, ...]) -> tuple[_ReportRequest, ...]:
-    """Locate every report request, in the order the user wrote them.
-
-    Both spellings are found here so that stripping and collecting can
-    never disagree about which tokens belong to a request.
-    """
+    """Locate every report request, in the order the user wrote them."""
     joined_prefix = f"{_COV_REPORT_FLAG}{_VALUE_SEPARATOR}"
     requests: list[_ReportRequest] = []
     for index, arg in enumerate(args):
@@ -140,11 +99,7 @@ def _report_requests(args: tuple[str, ...]) -> tuple[_ReportRequest, ...]:
 
 
 def _separate_token_request(args: tuple[str, ...], flag_index: int) -> _ReportRequest:
-    """Claim the following token as the value, the way argparse would.
-
-    A flag that ends argv has no value to claim; pytest rejects that
-    invocation itself, so an empty value is enough of an answer here.
-    """
+    """Claim the following token as the value, the way argparse would."""
     value_index = flag_index + 1
     if value_index >= len(args):
         return _ReportRequest((flag_index,), "")
@@ -152,23 +107,13 @@ def _separate_token_request(args: tuple[str, ...], flag_index: int) -> _ReportRe
 
 
 def _filename_token(lane_name: str) -> str:
-    """Reduce a lane name to something safe to put in a filename.
-
-    Sharded lanes are named ``postgres~1of2``, and lane names come from a
-    user's INI file, so they can carry separators and shell metacharacters
-    that have no business in a path.
-    """
+    """Reduce a lane name to something safe to put in a filename."""
     token = _UNSAFE_IN_FILENAME.sub("_", lane_name).strip("_")
     return token or _UNNAMED_LANE
 
 
 def _is_coverage_option(arg: str) -> bool:
-    """Whether one token is a pytest-cov option.
-
-    The token has to be ``--cov`` exactly, or ``--cov`` followed by a
-    separator - otherwise a bare prefix test would also claim unrelated
-    options that happen to begin with the same letters.
-    """
+    """Whether one token is a pytest-cov option."""
     if arg == _COV_FLAG:
         return True
     return arg.startswith(

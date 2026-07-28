@@ -1,19 +1,4 @@
-"""Lane configuration loader for ``pyproject.toml``.
-
-The plugin's INI schema (``[pytest-lanes]`` in ``pytest.ini`` / ``tox.ini`` /
-``setup.cfg``) is whitespace-delimited text; this module reads the same lane
-model from a ``[tool.pytest-lanes]`` table instead and returns the very same
-:class:`~pytest_lanes.config.LaneSpec` and
-:class:`~pytest_lanes.config.LaneConfig` dataclasses, validated by the same
-cross-reference rules.
-
-Because TOML carries real types, this loader is stricter than the INI one: a
-string where an array belongs, a float where an integer belongs, or a
-misspelled key is refused instead of silently ignored.
-
-Lane markers must be declared in the same file, in
-``[tool.pytest.ini_options].markers``.
-"""
+"""Lane configuration loader for ``pyproject.toml``."""
 
 from __future__ import annotations
 
@@ -43,8 +28,7 @@ INI_OPTIONS_TABLE_PATH = "tool.pytest.ini_options"
 
 _MARKERS_FIELD = f"[{INI_OPTIONS_TABLE_PATH}].markers"
 
-# Unknown keys are refused rather than ignored: a misspelled option in a new
-# schema is far more likely a typo than a forward-compatible extension.
+# Unknown keys are refused; a misspelled option is a typo, not an extension.
 _INDEX_KEYS: tuple[str, ...] = (
     "lanes",
     "subprocess_order_standard",
@@ -72,12 +56,7 @@ _LANE_KEYS: tuple[str, ...] = (
 
 
 def load_lane_config_from_pyproject(pyproject_path: Path) -> LaneConfig:
-    """Load lane config from the ``[tool.pytest-lanes]`` table of a pyproject.
-
-    Raises :class:`~pytest_lanes.config.LaneConfigError` when the file declares
-    no such table. Callers that want the plugin to stay dormant instead should
-    use :func:`load_lane_config_from_pyproject_or_none`.
-    """
+    """Load lane config from the ``[tool.pytest-lanes]`` table of a pyproject."""
     document = _read_toml(pyproject_path)
     lanes_table = _lanes_table_or_none(document)
     if lanes_table is None:
@@ -89,14 +68,7 @@ def load_lane_config_from_pyproject(pyproject_path: Path) -> LaneConfig:
 
 
 def load_lane_config_from_pyproject_or_none(pyproject_path: Path) -> LaneConfig | None:
-    """Load lane config from a pyproject only if it opts into the plugin.
-
-    Returns ``None`` when the file does not exist or declares no
-    ``[tool.pytest-lanes]`` table — the plugin stays dormant and pytest behaves
-    as if it were not installed. A table that exists but is malformed still
-    raises :class:`~pytest_lanes.config.LaneConfigError` so mistakes surface
-    loudly.
-    """
+    """Load lane config from a pyproject only if it opts into the plugin."""
     if not pyproject_path.exists():
         return None
     if _lanes_table_or_none(_read_toml(pyproject_path)) is None:
@@ -284,8 +256,7 @@ def _declared_markers(document: dict[str, Any]) -> set[str]:
 
 
 def _marker_entries(document: dict[str, Any]) -> tuple[str, ...]:
-    # pytest accepts markers as an array of strings or as a single
-    # newline-separated string; both spellings are common in pyproject.toml.
+    # pytest accepts markers as an array or a newline-separated string.
     ini_options = _nested_table_or_none(document, ("tool", "pytest", "ini_options"))
     markers = (ini_options or {}).get("markers")
     if markers is None:
@@ -302,12 +273,7 @@ def _marker_entries(document: dict[str, Any]) -> tuple[str, ...]:
 
 @dataclass(frozen=True)
 class _TomlFields:
-    """Typed reader over one TOML table, reporting in the loader's error voice.
-
-    ``field_prefix`` is how this table names its keys in messages — either
-    ``[tool.pytest-lanes].`` for the index table or ``Lane 'x': `` for a lane
-    table — so every accessor below reports the field the user actually wrote.
-    """
+    """Typed reader over one TOML table, reporting in the loader's error voice."""
 
     table: dict[str, Any]
     field_prefix: str

@@ -1,8 +1,4 @@
-"""Lane orchestration reporting for orchestrated pytest runs.
-
-This module centralizes output parsing, live lane state tracking, and
-terminal presentation for orchestrated multi-lane pytest execution.
-"""
+"""Lane orchestration reporting for orchestrated pytest runs."""
 
 from __future__ import annotations
 

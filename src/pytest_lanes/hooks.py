@@ -1,26 +1,4 @@
-"""pytest hook implementations for the lane orchestrator.
-
-When the package is installed, the hooks load through the ``pytest11`` entry
-point (:mod:`pytest_lanes.plugin`). Vendored copies can re-export them from a
-repo-root ``conftest.py`` instead. Lane configuration is loaded once per
-session from the host project's INI file and cached on module state.
-
-Responsibilities, in order:
-
-* register the ``--lanes-full``, ``--lane``, and ``--lanes-max-workers`` CLI
-  options;
-* in :func:`pytest_cmdline_main`, intercept the command line and fan out into
-  lane subprocesses when :func:`~pytest_lanes.mode.orchestration_mode`
-  selects a multi-lane mode;
-* apply per-lane env overrides (``subprocess_env_set``) around every test in
-  single-process mode (:func:`pytest_runtest_setup` /
-  :func:`pytest_runtest_teardown`);
-* in :func:`pytest_collection_modifyitems`, mark each item with its lane's
-  marker and skip items outside any ``--lane=`` selection.
-
-When no ``[pytest-lanes]`` configuration exists in the rootdir, every hook is
-a no-op and pytest behaves as if the plugin were not installed.
-"""
+"""pytest hook implementations for the lane orchestrator."""
 
 from __future__ import annotations
 
@@ -69,8 +47,7 @@ from pytest_lanes.suggest import (
 )
 
 ENV_OVERRIDE_ATTR = "_pytest_lanes_env_overrides"
-# Balanced suggestions cap lane count: past this, per-lane fixed costs
-# (startup, collection, imports) eat the marginal parallelism.
+# Past this cap, per-lane fixed costs eat the marginal parallelism.
 MAX_SUGGESTED_LANES = 8
 
 _lane_config: LaneConfig | None = None
@@ -117,7 +94,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=None,
         help=(
             "Run only the named lane(s) in-process (no subprocess fanout). "
-            "Comma-separated for multiple lanes, e.g. --lane=postgres,timescale."
+            "Comma-separated for multiple lanes, e.g. --lane=postgres,redis."
         ),
     )
     group.addoption(
@@ -156,7 +133,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=False,
         help=(
             "Derive one lane per test-bearing subdirectory of the rootdir, "
-            "plus a fallback for stray files — no config file needed."
+            "plus a fallback for stray files; no config file needed."
         ),
     )
     group.addoption(
@@ -195,8 +172,7 @@ def pytest_cmdline_main(config: pytest.Config) -> int | None:
             records, lane_count=min(detected_cpu_count(), MAX_SUGGESTED_LANES)
         )
         if balanced:
-            # Recorded per-file durations beat static guessing: propose a
-            # partition whose lanes finish at roughly the same time.
+            # With recorded durations, propose a partition that finishes evenly.
             print(format_balanced_suggestion(balanced))
             return 0
 
@@ -235,8 +211,7 @@ def pytest_cmdline_main(config: pytest.Config) -> int | None:
     )
     rootpath = Path(str(config.rootpath))
     duration_store = duration_store_for_rootdir(rootpath)
-    # Disabling capture is a request to see output now, so honour -s the way
-    # a developer expects rather than only the explicit flag.
+    # -s is a request to see output now; honour it like the explicit flag.
     show_lane_output = bool(
         config.getoption("--lanes-show-output")
     ) or wants_live_lane_output(args)
@@ -265,8 +240,7 @@ def pytest_cmdline_main(config: pytest.Config) -> int | None:
         persisted_plan=load_persisted_plan(plan_path),
     )
     if not plan.commands:
-        # Lanes are declared but no subprocess order list is: there is nothing
-        # to fan out, so let pytest run normally instead of exiting early.
+        # Lanes without a subprocess order: nothing to fan out, run normally.
         return None
     for note in plan.notes:
         print(f"pytest-lanes: {note}")
@@ -284,15 +258,7 @@ def pytest_cmdline_main(config: pytest.Config) -> int | None:
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    """Load lane config and, for ``--lane=<name>`` runs, restrict collection.
-
-    Runs before any collection, so config rewrites here are picked up by
-    pytest's collector. When ``--lane=<name>`` is set we replace
-    ``config.args`` with the lane's subprocess paths and extend
-    ``config.option.ignore`` with the lane's ignores — otherwise pytest
-    would try to collect every file under rootdir and fail on imports
-    from unrelated lanes whose dependencies are not installed in this env.
-    """
+    """Load lane config and, for ``--lane=<name>`` runs, restrict collection."""
     global _lane_config, _rootpath
 
     _rootpath = Path(str(config.rootpath))
@@ -328,21 +294,14 @@ def pytest_configure(config: pytest.Config) -> None:
 
 
 def pytest_sessionstart(session: pytest.Session) -> None:
-    """In lane children, start measuring the run when the executor asks.
-
-    The executor sets :data:`CHILD_DURATIONS_OUT_ENV` to a JSON output path
-    per child; without it (in-process runs, foreign projects) this is a
-    no-op.
-    """
+    """In lane children, start measuring the run when the executor asks."""
     global _child_recorder
 
     output_path = os.environ.get(CHILD_DURATIONS_OUT_ENV)
     if not output_path:
         return
     if os.environ.get(XDIST_WORKER_ENV):
-        # In-lane xdist: only the lane's controller process records — it
-        # receives every worker's test reports; workers racing on the same
-        # output file would corrupt it.
+        # In-lane xdist: only the controller records; racing workers would corrupt the file.
         return
     _child_recorder = ChildRunRecorder(output_path=Path(output_path))
     _child_recorder.mark_session_start()
@@ -397,12 +356,7 @@ def _print_divisibility_footer(lane_config: LaneConfig, rootpath: Path) -> None:
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_runtestloop(session: pytest.Session) -> bool | None:
-    """Skip test execution entirely for ``--lanes-explain`` runs.
-
-    Returning ``True`` short-circuits pytest's run loop after collection —
-    the same mechanism ``--collect-only`` uses — without triggering the
-    terminal reporter's collect-only tree output.
-    """
+    """Skip test execution entirely for ``--lanes-explain`` runs."""
     if session.config.getoption("--lanes-explain"):
         return True
     return None

@@ -1,10 +1,4 @@
-"""Behavioral tests for argv inspection around the zero-config flags.
-
-``--lane-def db=tests/db`` may arrive as two argv tokens; the value token
-looks positional but must be treated as the flag's value everywhere argv is
-inspected — otherwise orchestration would wrongly step aside, and lane
-children would receive definition tokens as collection targets.
-"""
+"""Behavioral tests for argv inspection around the zero-config flags."""
 
 from __future__ import annotations
 
@@ -26,10 +20,7 @@ def test_split_lane_def_value_is_not_a_targeted_path() -> None:
     ["-s", "--capture=no", "--capture", "-sv", "-xs"],
 )
 def test_disabling_capture_asks_for_live_lane_output(argument: str) -> None:
-    # Given the idiom a developer actually types to see print() output,
-    # lanes must stream their children live - capturing it and showing it
-    # only for failing lanes silently swallows the very output that was
-    # asked for.
+    # Given -s: output must stream live, not only on failure.
     assert wants_live_lane_output((".", argument)) is True
 
 
@@ -38,8 +29,7 @@ def test_disabling_capture_asks_for_live_lane_output(argument: str) -> None:
     ["-q", "--capture=fd", "--capture=sys", "-x", "--co", "--strict-markers"],
 )
 def test_ordinary_arguments_leave_lane_output_captured(argument: str) -> None:
-    # Given no request for live output, lane output stays folded into the
-    # summary and is printed only for lanes that failed.
+    # Given no live-output request, output stays folded into the summary.
     assert wants_live_lane_output((".", argument)) is False
 
 

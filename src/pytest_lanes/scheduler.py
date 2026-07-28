@@ -1,13 +1,4 @@
-"""Bounded scheduling of lane subprocesses.
-
-The executor asks a :class:`LaneWorkQueue` which lanes may launch right now:
-at most ``max_workers`` lanes run concurrently, and pending lanes launch in
-the order chosen by a :class:`LaneOrderingPolicy` as running lanes finish.
-
-``DeclaredOrderPolicy`` preserves the configured ``subprocess_order_*``
-order. A duration-aware longest-first policy is planned once recorded lane
-durations exist to draw on.
-"""
+"""Bounded scheduling of lane subprocesses."""
 
 from __future__ import annotations
 
@@ -52,12 +43,7 @@ class DeclaredOrderPolicy:
 
 
 class LongestFirstPolicy:
-    """Queue lanes with the longest recorded duration first.
-
-    Lanes with no recorded duration launch before recorded ones, keeping
-    their declared relative order — an unmeasured lane may be the longest,
-    and starting it early is the safe scheduling bet.
-    """
+    """Queue lanes with the longest recorded duration first."""
 
     def __init__(self, recorded_durations: Mapping[str, float]) -> None:
         self._recorded = dict(recorded_durations)

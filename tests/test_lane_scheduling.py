@@ -1,9 +1,4 @@
-"""Behavioral tests for the bounded lane scheduler.
-
-The scheduler decides *when* each lane subprocess may launch: at most
-``max_workers`` lanes run concurrently, and queued lanes launch in the
-order chosen by a ``LaneOrderingPolicy`` as slots free up.
-"""
+"""Behavioral tests for the bounded lane scheduler."""
 
 from __future__ import annotations
 
@@ -30,19 +25,19 @@ def _commands(*names: str) -> list[LaneCommand]:
 
 def test_ready_lanes_are_capped_by_max_workers() -> None:
     work_queue = LaneWorkQueue(
-        commands=_commands("postgres", "timescale", "other"),
+        commands=_commands("postgres", "redis", "other"),
         max_workers=2,
         policy=DeclaredOrderPolicy(),
     )
 
     ready = work_queue.ready_to_launch()
 
-    assert [command.name for command in ready] == ["postgres", "timescale"]
+    assert [command.name for command in ready] == ["postgres", "redis"]
 
 
 def test_finishing_a_lane_releases_a_slot_for_the_next_pending_lane() -> None:
     work_queue = LaneWorkQueue(
-        commands=_commands("postgres", "timescale", "other"),
+        commands=_commands("postgres", "redis", "other"),
         max_workers=2,
         policy=DeclaredOrderPolicy(),
     )
@@ -58,14 +53,14 @@ def test_finishing_a_lane_releases_a_slot_for_the_next_pending_lane() -> None:
 
 def test_max_workers_at_or_above_lane_count_launches_everything_at_once() -> None:
     work_queue = LaneWorkQueue(
-        commands=_commands("postgres", "timescale", "other"),
+        commands=_commands("postgres", "redis", "other"),
         max_workers=8,
         policy=DeclaredOrderPolicy(),
     )
 
     ready = work_queue.ready_to_launch()
 
-    assert [command.name for command in ready] == ["postgres", "timescale", "other"]
+    assert [command.name for command in ready] == ["postgres", "redis", "other"]
 
 
 def test_queue_is_done_only_after_every_lane_finishes() -> None:
@@ -113,8 +108,7 @@ def test_longest_first_policy_launches_unrecorded_lanes_first() -> None:
 
     ordered = policy.ordered(_commands("known", "new_a", "new_b"))
 
-    # An unmeasured lane may be the longest; starting it early is the safe
-    # scheduling bet. Unrecorded lanes keep their declared relative order.
+    # An unmeasured lane may be the longest; start it early.
     assert [command.name for command in ordered] == ["new_a", "new_b", "known"]
 
 

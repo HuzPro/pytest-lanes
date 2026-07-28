@@ -1,16 +1,4 @@
-"""Lane classification and subprocess argv construction.
-
-Two pure functions consumed by the plugin hooks:
-
-* :func:`lane_for_item` — given a collected pytest item, return the
-  :class:`~pytest_lanes.config.LaneSpec` that owns it. Class-base-name
-  matches outrank path-based rules so container-backed tests follow the
-  container regardless of where their file lives.
-* :func:`build_lane_commands` — emit one :class:`LaneCommand` per lane
-  subprocess for the selected mode (``"standard"`` or ``"full"``), wired with
-  ``--ignore=`` flags derived from sibling lanes when
-  ``subprocess_ignore_other_lanes`` is set.
-"""
+"""Lane classification and subprocess argv construction."""
 
 from __future__ import annotations
 
@@ -22,12 +10,7 @@ from pytest_lanes.config import LaneConfig, LaneSpec
 
 @dataclass(frozen=True)
 class LaneCommand:
-    """One lane subprocess: its pytest argv (minus the interpreter) and env overrides.
-
-    ``tolerate_no_tests`` marks auto-generated fallback lanes that may
-    legitimately collect nothing; the executor treats their
-    NO_TESTS_COLLECTED exit as success.
-    """
+    """One lane subprocess: its pytest argv (minus the interpreter) and env overrides."""
 
     name: str
     args: tuple[str, ...]
@@ -53,26 +36,14 @@ class LaneAssignment:
 
 
 def lane_for_item(item: object, rootpath: Path, lane_config: LaneConfig) -> LaneSpec:
-    """Return the lane that owns this test item.
-
-    Delegates to :func:`explain_lane_for_item` so classification has exactly
-    one code path — what ``--lanes-explain`` reports is what runs.
-    """
+    """Return the lane that owns this test item."""
     return explain_lane_for_item(item, rootpath, lane_config).lane
 
 
 def explain_lane_for_item(
     item: object, rootpath: Path, lane_config: LaneConfig
 ) -> LaneAssignment:
-    """Return the lane that owns this test item and the rule that claimed it.
-
-    Resolution order:
-        1. ``classifier_class_base_names`` — promotes container-backed tests
-           into their container lane regardless of file path.
-        2. ``classifier_paths`` / ``classifier_path_suffix`` /
-           ``classifier_path_prefixes`` in lane declaration order.
-        3. The lane declared with ``classifier_fallback = true``.
-    """
+    """Return the lane that owns this test item and the rule that claimed it."""
     class_assignment = _class_base_name_assignment(item, lane_config)
     if class_assignment is not None:
         return class_assignment
@@ -151,15 +122,10 @@ def build_lane_commands(
 
     commands: list[LaneCommand] = []
     for spec in lane_specs:
-        # Children must not touch pytest's cache: concurrent lanes racing on
-        # `.pytest_cache` creation breaks sibling collection (transient
-        # `pytest-cache-files-*` dirs on Windows), and parallel writers
-        # would clobber `lastfailed` last-writer-wins regardless.
+        # Concurrent children racing on .pytest_cache break collection and clobber lastfailed.
         args: list[str] = [*passthrough_args, "--color=no", "-p", "no:cacheprovider"]
         if spec.lane_numprocesses is not None:
-            # In-lane xdist: spread this homogeneous lane's files across
-            # workers. loadfile keeps each file on one worker, preserving
-            # in-file ordering — the lane opted into file-level spreading.
+            # loadfile keeps each file on one worker, preserving in-file ordering.
             args.extend(["-n", str(spec.lane_numprocesses), "--dist", "loadfile"])
         args.extend(spec.subprocess_paths)
         args.extend(spec.subprocess_nodeids)

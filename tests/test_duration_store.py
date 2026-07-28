@@ -1,10 +1,4 @@
-"""Behavioral tests for per-lane duration persistence (v2 schema).
-
-Each lane's record carries the wall total plus the measured fixed costs
-(startup, collect) and per-file durations that shard planning and split
-advice need. v1 files (flat ``{lane: seconds}``) migrate transparently; a
-missing or corrupt file simply means no recorded data yet.
-"""
+"""Behavioral tests for per-lane duration persistence (v2 schema)."""
 
 from __future__ import annotations
 
@@ -80,7 +74,7 @@ def test_recording_merges_lanes_but_replaces_each_lane_record_wholesale(
     store.record(
         {
             "postgres": LaneRecord(total=30.0, files=(("a.py", 30.0),)),
-            "timescale": LaneRecord(total=16.0),
+            "redis": LaneRecord(total=16.0),
         }
     )
 
@@ -88,7 +82,7 @@ def test_recording_merges_lanes_but_replaces_each_lane_record_wholesale(
 
     records = store.recorded_lane_records()
     assert records["postgres"] == LaneRecord(total=32.0, files=(("b.py", 32.0),))
-    assert records["timescale"] == LaneRecord(total=16.0)
+    assert records["redis"] == LaneRecord(total=16.0)
 
 
 def test_store_for_rootdir_lives_under_the_pytest_cache(tmp_path: Path) -> None:

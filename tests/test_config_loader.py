@@ -1,9 +1,4 @@
-"""Behavioral tests for the lane-config INI loader.
-
-These tests describe the schema contract between ``pytest.ini`` and the
-plugin. They are quality-over-quantity: each test pins one user-observable
-behavior of the loader rather than exhaustively exercising every code path.
-"""
+"""Behavioral tests for the lane-config INI loader."""
 
 from __future__ import annotations
 
@@ -141,14 +136,14 @@ def test_loader_preserves_lane_declaration_order(tmp_path: Path) -> None:
 markers =
 \tunit: unit tests
 \tpostgres_integration: pg tests
-\ttimescale_integration: ts tests
+\tredis_integration: ts tests
 
 [pytest-lanes]
-lanes = timescale postgres other
-subprocess_order_standard = postgres timescale other
+lanes = redis postgres other
+subprocess_order_standard = postgres redis other
 
-[pytest-lanes:timescale]
-marker = timescale_integration
+[pytest-lanes:redis]
+marker = redis_integration
 
 [pytest-lanes:postgres]
 marker = postgres_integration
@@ -161,10 +156,10 @@ classifier_fallback = true
 
     config = load_lane_config(ini)
 
-    assert [spec.name for spec in config.lanes] == ["timescale", "postgres", "other"]
+    assert [spec.name for spec in config.lanes] == ["redis", "postgres", "other"]
     assert [spec.name for spec in config.standard_subprocess_lanes()] == [
         "postgres",
-        "timescale",
+        "redis",
         "other",
     ]
 

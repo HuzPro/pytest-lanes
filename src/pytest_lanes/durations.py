@@ -1,16 +1,4 @@
-"""Persistence of per-lane run measurements across orchestrated runs.
-
-Each lane's :class:`LaneRecord` carries the wall total plus the measured
-fixed costs (``startup``: session start to first test, which captures
-container spin-up; ``collect``) and per-file durations. Totals feed
-longest-first ordering and pending-lane ETAs; the full records feed shard
-planning and ``--lanes-suggest`` split advice.
-
-``JsonFileDurationStore`` is the on-disk adapter under pytest's cache
-directory (``.pytest_cache/v/pytest-lanes/``). v1 files (flat
-``{lane: seconds}``) migrate transparently as totals-only records; a
-missing or corrupt file degrades to "no recorded data" — never an error.
-"""
+"""Persistence of per-lane run measurements across orchestrated runs."""
 
 from __future__ import annotations
 

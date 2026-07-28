@@ -1,11 +1,4 @@
-"""End-to-end tests: a real ``pytest`` invocation fans out into lane subprocesses.
-
-Each test generates a miniature two-lane project in ``tmp_path``, runs
-``python -m pytest .`` there with the installed plugin, and asserts on the
-user-observable outcome: lanes execute, exit codes propagate, and the lane
-summary is printed. These tests require the package to be installed in the
-current environment (``pip install -e .``).
-"""
+"""End-to-end tests: a real ``pytest`` invocation fans out into lane subprocesses."""
 
 from __future__ import annotations
 
@@ -70,8 +63,7 @@ def _run_pytest_in(
         for key, value in os.environ.items()
         if key != TEST_ORCHESTRATION_CHILD_ENV
     }
-    # Keep child output UTF-8 so the rich table renders identically on
-    # Windows runners with legacy console encodings.
+    # UTF-8 child output so the rich table renders on legacy consoles.
     env["PYTHONIOENCODING"] = "utf-8"
     return subprocess.run(
         [sys.executable, "-m", "pytest", ".", *extra_args],
@@ -150,9 +142,7 @@ def test_failing_lane_propagates_exit_code_and_surfaces_its_output(
 
 
 def test_junit_report_holds_every_lanes_tests(tmp_path: Path) -> None:
-    # Given a CI-style run asking for one JUnit report, every lane writes the
-    # same path unless the parent stages and merges them - and the last
-    # writer silently wins, handing CI a report missing most of the suite.
+    # Given a CI-style run asking for one JUnit report across lanes.
     _write_demo_project(tmp_path)
     report = tmp_path / "report.xml"
 
@@ -170,8 +160,7 @@ def test_junit_report_holds_every_lanes_tests(tmp_path: Path) -> None:
     find_spec("pytest_cov") is None, reason="requires pytest-cov installed"
 )
 def test_coverage_run_completes_and_combines_lane_data(tmp_path: Path) -> None:
-    # Given --cov, lane children each measure coverage; sharing one
-    # .coverage SQLite file made them corrupt it and fail the run.
+    # Given --cov, children must not share one .coverage SQLite file.
     _write_demo_project(tmp_path)
 
     result = _run_pytest_in(tmp_path, extra_args=("--cov=.", "--cov-report="))
@@ -188,8 +177,7 @@ def test_coverage_run_completes_and_combines_lane_data(tmp_path: Path) -> None:
 def test_coverage_xml_report_is_written_once_for_the_whole_run(
     tmp_path: Path,
 ) -> None:
-    # The requested report must be produced by the parent after combining,
-    # not raced over by every lane child.
+    # The parent produces the report after combining; children stay silent.
     _write_demo_project(tmp_path)
     coverage_xml = tmp_path / "cov.xml"
 
@@ -204,19 +192,14 @@ def test_coverage_xml_report_is_written_once_for_the_whole_run(
         element.get("name", "") for element in measured.iter("class")
     }
     flattened = " ".join(sorted(filenames))
-    # Each lane executes a different test module, so a report produced by one
-    # lane overwriting another's mentions only that lane's file. Both names
-    # appearing is what proves the data was combined.
+    # Both module names appearing proves the data was combined.
     assert "test_io.py" in flattened, flattened
     assert "test_unit.py" in flattened, flattened
 
 
 def test_lanes_beyond_max_workers_wait_for_a_free_slot(tmp_path: Path) -> None:
     _write_demo_project(tmp_path, extra_index_lines="max_workers = 1\n")
-    # The io lane finishes by writing a sentinel; the other lane's test only
-    # passes if that sentinel already exists when it runs. With one worker
-    # and declared order io -> other, this is deterministic — no timing
-    # assertions needed.
+    # One worker, declared order io -> other, makes the sentinel deterministic.
     (tmp_path / "io_tests" / "test_io.py").write_text(
         "import time\n"
         "from pathlib import Path\n"
@@ -344,8 +327,7 @@ def test_recorded_divisible_lane_shards_in_a_real_run(tmp_path: Path) -> None:
     (unit_dir / "test_unit.py").write_text(
         "def test_unit_lane_runs():\n    assert True\n", encoding="utf-8"
     )
-    # Seed recorded durations that make the split clearly profitable; the
-    # tests themselves are instant, so only the plan depends on these.
+    # Seed durations that make the split clearly profitable.
     duration_store_for_rootdir(tmp_path).record(
         {
             "io": LaneRecord(
@@ -409,8 +391,7 @@ def test_lane_numprocesses_runs_that_lane_under_xdist(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stdout + result.stderr
     assert "Lane Test Summary" in result.stdout
     assert "FAIL" not in result.stdout
-    # The xdist controller receives every worker's reports, so per-file
-    # durations still record for the spread lane.
+    # The xdist controller receives every worker's reports.
     durations_file = (
         tmp_path / ".pytest_cache" / "v" / "pytest-lanes" / "lane_durations.json"
     )
@@ -429,7 +410,7 @@ def test_lanes_suggest_prints_reviewable_ini_for_an_unconfigured_project(
     assert "[pytest-lanes:io_tests]" in result.stdout
     assert "[pytest-lanes:unit_tests]" in result.stdout
     assert "--lanes-explain" in result.stdout
-    # Only prints the suggestion — no tests execute.
+    # Only prints the suggestion; no tests execute.
     assert "Lane Test Summary" not in result.stdout
 
 

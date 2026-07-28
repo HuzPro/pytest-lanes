@@ -1,10 +1,4 @@
-"""Behavioral tests for ``--lanes-auto`` directory-partition lane discovery.
-
-One lane per immediate subdirectory of the rootpath that contains test
-files, plus the auto fallback for stray root-level files. Activates only on
-the explicit flag; a layout with no usable partition yields ``None`` so the
-run falls back to plain pytest instead of pretending to parallelize.
-"""
+"""Behavioral tests for ``--lanes-auto`` directory-partition lane discovery."""
 
 from __future__ import annotations
 

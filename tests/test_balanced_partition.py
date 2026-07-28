@@ -1,10 +1,4 @@
-"""Behavioral tests for the duration-balanced lane partition.
-
-The partitioner reads recorded per-file durations (durations v2) and packs
-them into lanes of roughly equal projected wall time. These tests pin the
-behavior a user can observe: what lands where, that it is deterministic,
-and that the printed INI says out loud what it is guessing at.
-"""
+"""Behavioral tests for the duration-balanced lane partition."""
 
 from __future__ import annotations
 
@@ -107,8 +101,7 @@ def test_partition_is_identical_for_the_same_records_in_a_different_order() -> N
     first = balanced_partition(forward, lane_count=2)
     second = balanced_partition(shuffled, lane_count=2)
 
-    # Assert: a suggestion you cannot reproduce is a suggestion you
-    # cannot review, so ordering must never leak into the result.
+    # Assert: ordering must never leak into the result.
     assert first == balanced_partition(forward, lane_count=2)
     assert first == second
 
@@ -155,8 +148,7 @@ def test_small_directories_travel_whole_and_are_reported_for_prefix_matching() -
     # Act
     lanes = balanced_partition(records, lane_count=3)
 
-    # Assert: whole directories can be claimed by prefix (so files added
-    # later still land in the lane); the split one cannot.
+    # Assert: whole directories claim by prefix; the split one cannot.
     whole = {directory for lane in lanes for directory in lane.whole_directories}
     assert whole == {"alpha", "beta"}
     for lane in lanes:
@@ -224,8 +216,7 @@ def test_colliding_lane_names_are_numbered_and_never_shadow_the_rest_lane() -> N
     # Act
     lanes = balanced_partition(records, lane_count=3)
 
-    # Assert: numbering follows projected seconds, heaviest keeps the
-    # bare name, and "rest" stays reserved for the catch-all lane.
+    # Assert: numbering follows projected seconds; "rest" stays reserved.
     assert [lane.name for lane in lanes] == ["checkout", "checkout_2", "rest_2"]
 
 
@@ -246,8 +237,7 @@ def test_lanes_are_dropped_rather_than_returned_empty() -> None:
     # Act
     lanes = balanced_partition(records, lane_count=8)
 
-    # Assert: a declared lane that collects nothing fails the run, so the
-    # eighth lane is simply not suggested.
+    # Assert: a declared lane that collects nothing fails the run.
     assert len(lanes) == 7
     assert all(lane.files for lane in lanes)
 
@@ -284,8 +274,7 @@ def test_header_says_where_the_numbers_came_from_and_what_a_lane_costs() -> None
     # Arrange / Act
     suggestion = format_balanced_suggestion(_two_balanced_lanes())
 
-    # Assert: the reader is told this is measured, stale-able, and that
-    # each lane re-pays its environment startup.
+    # Assert: the header says measured, stale-able, and startup is re-paid.
     assert "recorded" in suggestion
     assert "62.3s across 3 files" in suggestion
     assert "startup" in suggestion
@@ -298,9 +287,7 @@ def test_header_warns_that_shared_service_tests_must_stay_in_one_lane() -> None:
     # Arrange / Act
     suggestion = format_balanced_suggestion(_two_balanced_lanes())
 
-    # Assert: the balancer only sees durations - it cannot see two files
-    # sharing a database or container, and splitting those across lanes
-    # makes them race each other's setup and teardown.
+    # Assert: the balancer sees durations only, not shared-service coupling.
     assert "shared external service" in suggestion
     assert "same lane" in suggestion
 
@@ -322,8 +309,7 @@ def test_lane_section_carries_its_projection_paths_and_divisible_assertion() -> 
     # Arrange / Act
     suggestion = format_balanced_suggestion(_two_balanced_lanes())
 
-    # Assert: whole directories claim by prefix, split files by name, and
-    # subprocess_paths mirrors both without the trailing slash.
+    # Assert: directories claim by prefix, split files by name; subprocess_paths mirrors both.
     assert "[pytest-lanes:checkout]" in suggestion
     assert "# projected: 42.3s" in suggestion
     assert "marker = checkout" in suggestion
@@ -341,8 +327,7 @@ def test_rest_lane_catches_tests_added_since_the_durations_were_recorded() -> No
     # Arrange / Act
     suggestion = format_balanced_suggestion(_two_balanced_lanes())
 
-    # Assert: the catch-all is allowed to come up empty - that is success,
-    # not a failed run.
+    # Assert: an empty catch-all is success, not a failed run.
     assert "[pytest-lanes:rest]" in suggestion
     assert "marker = rest" in suggestion
     assert "classifier_fallback = true" in suggestion

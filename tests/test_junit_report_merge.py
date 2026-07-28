@@ -1,11 +1,4 @@
-"""Behavioral tests for per-lane JUnit XML redirection and merging.
-
-Every lane child receives the user's passthrough argv, so a single
-``--junitxml=report.xml`` makes every lane write the same file and the last
-writer wins. These tests pin the two halves of the fix: redirecting each
-lane to its own staging path, and merging the staged documents back into one
-report whose root totals are correct.
-"""
+"""Behavioral tests for per-lane JUnit XML redirection and merging."""
 
 from __future__ import annotations
 
@@ -172,11 +165,11 @@ def test_merged_report_disambiguates_suites_that_share_a_name() -> None:
 
 def test_merged_report_leaves_an_already_distinct_suite_name_alone() -> None:
     merged = merged_junit_document(
-        (_lane_document(name="postgres"), _lane_document(name="timescale"))
+        (_lane_document(name="postgres"), _lane_document(name="redis"))
     )
 
     root = ElementTree.fromstring(merged)
-    assert [suite.get("name") for suite in root] == ["postgres", "timescale"]
+    assert [suite.get("name") for suite in root] == ["postgres", "redis"]
 
 
 def test_merge_skips_a_lane_that_never_wrote_its_report() -> None:

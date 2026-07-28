@@ -1,19 +1,4 @@
-"""Benchmark the execution modes on the representative suite in this directory.
-
-Modes:
-  serial          plain single-process pytest (plugin disabled)
-  xdist-load      pytest -n auto (plugin disabled)
-  xdist-loadfile  pytest -n auto --dist loadfile (plugin disabled)
-  lanes           pytest-lanes, plain three-lane config
-  lanes-opt       pytest-lanes with divisible db lane + in-lane xdist units
-
-Protocol: one untimed warm-up per mode (which also builds the duration
-cache the optimized mode's shard planner needs), then N timed rounds,
-interleaved across modes so machine drift hits every mode equally.
-Reports the median wall time per mode.
-
-Usage:  python bench.py [--runs N]
-"""
+"""Benchmark the execution modes on the representative suite in this directory."""
 
 from __future__ import annotations
 

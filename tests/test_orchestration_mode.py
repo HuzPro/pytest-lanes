@@ -1,9 +1,4 @@
-"""Behavioral tests for ``orchestration_mode``.
-
-The function decides whether the current pytest invocation should fan out
-into lane subprocesses (``"standard"`` or ``"full"``) or behave as plain
-pytest (``None``).
-"""
+"""Behavioral tests for ``orchestration_mode``."""
 
 from __future__ import annotations
 
@@ -61,7 +56,7 @@ def test_targeted_path_bypasses_orchestration_even_with_full_flag() -> None:
 
 def test_keyword_filter_bypasses_orchestration() -> None:
     config = _FakeConfig(
-        full=True, invocation_args=(".", "-k", "tracker", "--lanes-full")
+        full=True, invocation_args=(".", "-k", "checkout", "--lanes-full")
     )
 
     assert orchestration_mode(config) is None

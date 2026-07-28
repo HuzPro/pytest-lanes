@@ -1,10 +1,4 @@
-"""Behavioral tests for per-lane report staging.
-
-Passthrough args reach every lane child, so any argument naming a single
-output file makes the lanes race for it. These tests pin the redirection
-half of the fix: each lane is given its own path, and the parent remembers
-what the user actually asked for so it can aggregate afterwards.
-"""
+"""Behavioral tests for per-lane report staging."""
 
 from __future__ import annotations
 
@@ -65,8 +59,7 @@ def test_each_lane_measures_coverage_into_its_own_data_file(tmp_path: Path) -> N
     # Act
     prepared, plan = prepare_lane_reports(commands, staging_dir=tmp_path)
 
-    # Assert: measurement survives, but into per-lane data files - one shared
-    # SQLite file is what corrupted the run.
+    # Assert: measurement survives, into per-lane data files.
     assert plan.coverage_requested is True
     assert all("--cov=pkg" in command.args for command in prepared)
     data_files = [dict(command.env_set)["COVERAGE_FILE"] for command in prepared]
@@ -82,8 +75,7 @@ def test_child_lanes_do_not_emit_their_own_partial_coverage_reports(
     # Act
     prepared, plan = prepare_lane_reports(commands, staging_dir=tmp_path)
 
-    # Assert: the request is remembered for the parent, and children are
-    # silenced so no lane writes a report covering only its own tests.
+    # Assert: request remembered for the parent; children silenced.
     assert plan.coverage_reports == ("xml:cov.xml",)
     for command in prepared:
         assert "--cov-report=xml:cov.xml" not in command.args
@@ -93,8 +85,7 @@ def test_child_lanes_do_not_emit_their_own_partial_coverage_reports(
 def test_explicitly_disabled_coverage_report_is_not_resurrected(
     tmp_path: Path,
 ) -> None:
-    # Arrange: `--cov-report=` is pytest-cov's idiom for "measure, report
-    # nothing"; the parent must not print a report the user switched off.
+    # Arrange: `--cov-report=` means "measure, report nothing".
     commands = _commands("-q", "--cov=pkg", "--cov-report=")
 
     # Act

@@ -1,11 +1,4 @@
-"""Behavioral tests: path- and class-based lane assignment driven by LaneConfig.
-
-The example config below models a realistic project with container-backed
-lanes (postgres, timescale), a build-verification lane, and a fallback
-``other`` lane. Each test pins one classification rule a user relies on;
-changing an assertion here means a test file would silently shift into a
-different lane subprocess.
-"""
+"""Behavioral tests: path- and class-based lane assignment driven by LaneConfig."""
 
 from __future__ import annotations
 
@@ -28,11 +21,7 @@ class _FakeItem:
 
 
 def _example_lane_config() -> LaneConfig:
-    """Build a LaneConfig for a realistic multi-lane project layout.
-
-    Exercises every classifier kind: exact paths, path prefixes, class base
-    names, a fallback lane, and both subprocess order lists.
-    """
+    """Build a LaneConfig for a realistic multi-lane project layout."""
     return LaneConfig(
         lanes=(
             LaneSpec(
@@ -40,51 +29,48 @@ def _example_lane_config() -> LaneConfig:
                 marker="full_build_verification",
                 classifier_paths=("test_full_build_verification.py",),
                 subprocess_nodeids=(
-                    (
-                        "test_full_build_verification.py::"
-                        "test_build_produces_windows_executable"
-                    ),
+                    ("test_full_build_verification.py::test_build_produces_installer"),
                 ),
                 subprocess_env_set=(
                     ("BUILD_OUTPUT_DIR", "build/full-build-verification"),
                 ),
             ),
             LaneSpec(
-                name="timescale",
-                marker="timescale_integration",
-                classifier_paths=("backend/postgres/tests/test_sensor_logger.py",),
-                subprocess_paths=("backend/postgres/tests/test_sensor_logger.py",),
+                name="redis",
+                marker="redis_integration",
+                classifier_paths=("services/postgres/tests/test_cache_sync.py",),
+                subprocess_paths=("services/postgres/tests/test_cache_sync.py",),
             ),
             LaneSpec(
                 name="postgres",
                 marker="postgres_integration",
-                classifier_path_prefixes=("backend/postgres/tests/",),
-                classifier_paths=("app/tests/test_first_run_configuration_service.py",),
+                classifier_path_prefixes=("services/postgres/tests/",),
+                classifier_paths=("app/tests/test_checkout_settings_service.py",),
                 classifier_class_base_names=(
                     "PostgresTestCase",
                     "SharedPostgresContainerTestCase",
-                    "TimescaleTestCase",
+                    "RedisTestCase",
                 ),
                 subprocess_paths=(
-                    "backend/postgres/tests",
-                    "app/tests/test_tracker_e2e.py",
+                    "services/postgres/tests",
+                    "app/tests/test_checkout_e2e.py",
                     "app/tests/test_config_e2e.py",
                     "app/tests/test_database_schema_ensurer.py",
-                    "app/tests/test_first_run_configuration_service.py",
+                    "app/tests/test_checkout_settings_service.py",
                 ),
-                subprocess_ignore=("backend/postgres/tests/test_sensor_logger.py",),
+                subprocess_ignore=("services/postgres/tests/test_cache_sync.py",),
             ),
             LaneSpec(
-                name="http_adapter",
+                name="api",
                 marker="unit",
-                classifier_path_prefixes=("backend/http_adapter/tests/",),
-                subprocess_paths=("backend/http_adapter/tests",),
+                classifier_path_prefixes=("services/api/tests/",),
+                subprocess_paths=("services/api/tests",),
             ),
             LaneSpec(
                 name="e2e",
                 marker="e2e",
                 classifier_paths=(
-                    "app/tests/test_tracker_e2e.py",
+                    "app/tests/test_checkout_e2e.py",
                     "app/tests/test_config_e2e.py",
                     "app/tests/test_database_schema_ensurer.py",
                 ),
@@ -93,11 +79,11 @@ def _example_lane_config() -> LaneConfig:
                 name="acceptance",
                 marker="acceptance",
                 classifier_path_prefixes=(
-                    "experiments/keyboard-acceptance-testing/acceptance_tests",
+                    "experiments/checkout-redesign/acceptance_tests",
                     "tests/backend_acceptance",
                 ),
                 subprocess_paths=(
-                    "experiments/keyboard-acceptance-testing/acceptance_tests",
+                    "experiments/checkout-redesign/acceptance_tests",
                     "tests/backend_acceptance",
                 ),
             ),
@@ -114,17 +100,17 @@ def _example_lane_config() -> LaneConfig:
         ),
         subprocess_order_standard=(
             "postgres",
-            "timescale",
+            "redis",
             "acceptance",
-            "http_adapter",
+            "api",
             "other",
         ),
         subprocess_order_full=(
             "postgres",
-            "timescale",
+            "redis",
             "acceptance",
             "full_build_verification",
-            "http_adapter",
+            "api",
             "other",
         ),
     )
@@ -136,37 +122,37 @@ _CONFIG = _example_lane_config()
 
 def test_postgres_tests_are_classified_as_postgres_lane() -> None:
     item = _FakeItem(
-        path=_ROOT / "backend" / "postgres" / "tests" / "test_activity_logger.py",
+        path=_ROOT / "services" / "postgres" / "tests" / "test_order_logger.py",
         nodeid=(
-            "backend/postgres/tests/test_activity_logger.py::"
-            "TestActivityLoggerRepository::test_create_activity"
+            "services/postgres/tests/test_order_logger.py::"
+            "TestOrderLoggerRepository::test_create_order"
         ),
     )
 
     assert lane_for_item(item, _ROOT, _CONFIG).marker == "postgres_integration"
 
 
-def test_timescale_sensor_logger_is_classified_as_timescale_lane() -> None:
+def test_cache_sync_file_is_classified_as_redis_lane() -> None:
     item = _FakeItem(
-        path=_ROOT / "backend" / "postgres" / "tests" / "test_sensor_logger.py",
-        nodeid="backend/postgres/tests/test_sensor_logger.py::test_one",
+        path=_ROOT / "services" / "postgres" / "tests" / "test_cache_sync.py",
+        nodeid="services/postgres/tests/test_cache_sync.py::test_one",
     )
 
-    assert lane_for_item(item, _ROOT, _CONFIG).marker == "timescale_integration"
+    assert lane_for_item(item, _ROOT, _CONFIG).marker == "redis_integration"
 
 
-def test_fastapi_tests_are_classified_with_unit_marker() -> None:
+def test_api_directory_tests_are_classified_with_unit_marker() -> None:
     item = _FakeItem(
-        path=_ROOT / "backend" / "http_adapter" / "tests" / "test_activity_logger.py",
-        nodeid="backend/http_adapter/tests/test_activity_logger.py::test_one",
+        path=_ROOT / "services" / "api" / "tests" / "test_order_logger.py",
+        nodeid="services/api/tests/test_order_logger.py::test_one",
     )
 
     spec = lane_for_item(item, _ROOT, _CONFIG)
-    assert spec.name == "http_adapter"
+    assert spec.name == "api"
     assert spec.marker == "unit"
 
 
-def test_activity_logger_e2e_paths_are_classified_as_e2e_lane() -> None:
+def test_config_e2e_paths_are_classified_as_e2e_lane() -> None:
     item = _FakeItem(
         path=_ROOT / "app" / "tests" / "test_config_e2e.py",
         nodeid="app/tests/test_config_e2e.py::test_round_trip",
@@ -177,8 +163,8 @@ def test_activity_logger_e2e_paths_are_classified_as_e2e_lane() -> None:
 
 def test_unmatched_tests_fall_back_to_unit_marker_via_other_lane() -> None:
     item = _FakeItem(
-        path=_ROOT / "app" / "tests" / "test_activity_tracker_logic.py",
-        nodeid="app/tests/test_activity_tracker_logic.py::test_one",
+        path=_ROOT / "app" / "tests" / "test_pricing_logic.py",
+        nodeid="app/tests/test_pricing_logic.py::test_one",
     )
 
     spec = lane_for_item(item, _ROOT, _CONFIG)
@@ -189,9 +175,7 @@ def test_unmatched_tests_fall_back_to_unit_marker_via_other_lane() -> None:
 def test_full_build_verification_filename_is_classified_as_fbv_lane() -> None:
     item = _FakeItem(
         path=_ROOT / "test_full_build_verification.py",
-        nodeid=(
-            "test_full_build_verification.py::test_build_produces_windows_executable"
-        ),
+        nodeid=("test_full_build_verification.py::test_build_produces_installer"),
     )
 
     assert lane_for_item(item, _ROOT, _CONFIG).marker == "full_build_verification"
@@ -202,21 +186,21 @@ def test_acceptance_path_prefix_is_classified_as_acceptance_lane() -> None:
         path=_ROOT
         / "tests"
         / "backend_acceptance"
-        / "instrastructure"
-        / "test_time_point_system.py",
-        nodeid="tests/backend_acceptance/instrastructure/test_time_point_system.py::test_one",
+        / "infrastructure"
+        / "test_order_totals.py",
+        nodeid="tests/backend_acceptance/infrastructure/test_order_totals.py::test_one",
     )
 
     assert lane_for_item(item, _ROOT, _CONFIG).marker == "acceptance"
 
 
-def test_first_run_configuration_service_is_classified_as_postgres_lane() -> None:
+def test_checkout_settings_service_is_classified_as_postgres_lane() -> None:
     item = _FakeItem(
-        path=_ROOT / "app" / "tests" / "test_first_run_configuration_service.py",
+        path=_ROOT / "app" / "tests" / "test_checkout_settings_service.py",
         nodeid=(
-            "app/tests/test_first_run_configuration_service.py::"
-            "TestFirstRunConfigurationServiceIntegration::"
-            "test_save_should_bootstrap_app_config_and_persist_settings_on_fresh_database"
+            "app/tests/test_checkout_settings_service.py::"
+            "TestCheckoutSettingsServiceIntegration::"
+            "test_save_should_persist_settings_on_fresh_database"
         ),
     )
 
@@ -227,12 +211,11 @@ def test_class_base_name_promotes_unit_test_into_postgres_lane() -> None:
     postgres_base = type("PostgresTestCase", (), {})
     fake_postgres_test_class = type("TestContainerBacked", (postgres_base,), {})
     item = _FakeItem(
-        path=_ROOT / "backend" / "http_adapter" / "tests" / "test_activity_logger.py",
-        nodeid="backend/http_adapter/tests/test_activity_logger.py::test_one",
+        path=_ROOT / "services" / "api" / "tests" / "test_order_logger.py",
+        nodeid="services/api/tests/test_order_logger.py::test_one",
         test_class=fake_postgres_test_class,
     )
 
-    # A test whose class inherits from a container-base type belongs to the
-    # postgres lane regardless of its file path.
+    # Class-based assignment wins regardless of file path.
     spec = lane_for_item(item, _ROOT, _CONFIG)
     assert spec.name == "postgres"

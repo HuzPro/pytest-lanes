@@ -1,13 +1,4 @@
-"""Parallel lane subprocess executor for orchestrated pytest runs.
-
-Each lane runs as its own ``python -m pytest`` subprocess. At most
-``max_workers`` lanes run concurrently; the rest wait in a
-:class:`~pytest_lanes.scheduler.LaneWorkQueue` and launch as slots free up.
-Output is streamed line-by-line from each child process into a shared queue,
-drained by the main loop into the lane reporter and console presenter.
-Children detect the parent via :data:`TEST_ORCHESTRATION_CHILD_ENV` so they
-skip re-orchestration.
-"""
+"""Parallel lane subprocess executor for orchestrated pytest runs."""
 
 from __future__ import annotations
 
@@ -67,8 +58,7 @@ def run_lane_commands(
     show_lane_output: bool = False,
 ) -> int:
     start_wall = time.perf_counter()
-    # The env var predates the flag and still works, for CI jobs that want
-    # every lane's output without changing the pytest command.
+    # The env var predates the flag; CI jobs use it without changing the command.
     show_lane_output = show_lane_output or os.environ.get(SHOW_LANE_OUTPUT_ENV) == "1"
     reports_dir = Path(tempfile.mkdtemp(prefix="pytest-lanes-reports-"))
     commands, report_plan = prepare_lane_reports(commands, staging_dir=reports_dir)
@@ -151,11 +141,7 @@ def _record_run_durations(
 
 
 def _merged_parent_record(measurements: list[dict]) -> LaneRecord:
-    """Fold shard measurements into one whole-lane record.
-
-    ``total`` approximates the unsharded serial run — fixed costs paid once
-    plus every file — which is what the next run's plan simulation needs.
-    """
+    """Fold shard measurements into one whole-lane record."""
     files: dict[str, float] = {}
     for measured in measurements:
         files.update(dict(measured.get("files", {})))
@@ -190,12 +176,7 @@ def _run_scheduling_loop(
     runs: list[_LaneRun],
     readers: list[threading.Thread],
 ) -> None:
-    """Launch lanes as worker slots allow and poll until every lane finishes.
-
-    ``runs`` and ``readers`` are appended in place so the caller can join
-    reader threads even when the loop exits via an exception (Ctrl+C); no
-    new lane launches after that point.
-    """
+    """Launch lanes as worker slots allow and poll until every lane finishes."""
     while not work_queue.is_done():
         for command in work_queue.ready_to_launch():
             run, reader = _launch_single_lane(command, context)

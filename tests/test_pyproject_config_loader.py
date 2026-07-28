@@ -1,10 +1,4 @@
-"""Behavioral tests for the lane-config ``pyproject.toml`` loader.
-
-These tests describe the schema contract between ``[tool.pytest-lanes]`` and
-the plugin. They mirror the INI loader's contract — same dataclasses, same
-error voice — and additionally pin the strictness that real TOML types make
-possible: wrong types and unknown keys are refused rather than ignored.
-"""
+"""Behavioral tests for the lane-config ``pyproject.toml`` loader."""
 
 from __future__ import annotations
 
@@ -151,14 +145,14 @@ def test_loader_preserves_lane_declaration_order(tmp_path: Path) -> None:
         tmp_path,
         """
 [tool.pytest.ini_options]
-markers = ["unit: unit tests", "postgres_integration: pg", "timescale_integration: ts"]
+markers = ["unit: unit tests", "postgres_integration: pg", "redis_integration: ts"]
 
 [tool.pytest-lanes]
-lanes = ["timescale", "postgres", "other"]
-subprocess_order_standard = ["postgres", "timescale", "other"]
+lanes = ["redis", "postgres", "other"]
+subprocess_order_standard = ["postgres", "redis", "other"]
 
-[tool.pytest-lanes.lane.timescale]
-marker = "timescale_integration"
+[tool.pytest-lanes.lane.redis]
+marker = "redis_integration"
 
 [tool.pytest-lanes.lane.postgres]
 marker = "postgres_integration"
@@ -171,10 +165,10 @@ classifier_fallback = true
 
     config = load_lane_config_from_pyproject(pyproject)
 
-    assert [spec.name for spec in config.lanes] == ["timescale", "postgres", "other"]
+    assert [spec.name for spec in config.lanes] == ["redis", "postgres", "other"]
     assert [spec.name for spec in config.standard_subprocess_lanes()] == [
         "postgres",
-        "timescale",
+        "redis",
         "other",
     ]
 

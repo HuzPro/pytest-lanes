@@ -1,15 +1,4 @@
-"""Mode selection for lane orchestration.
-
-Returns one of ``"full"``, ``"standard"``, or ``None``:
-
-* ``"full"`` — fan out into every lane, including those declared as ``optional``.
-* ``"standard"`` — fan out into the standard lane set only.
-* ``None`` — do not orchestrate; let pytest run as a single invocation. Used
-  when this process is itself a child lane subprocess (detected via env var),
-  when the user passed a custom selection (``-k``, ``-m``, ``--lane=``),
-  when the user pointed at specific paths instead of ``.``, or when
-  ``--lanes-explain`` asks for the classification listing instead of a run.
-"""
+"""Mode selection for lane orchestration."""
 
 from __future__ import annotations
 

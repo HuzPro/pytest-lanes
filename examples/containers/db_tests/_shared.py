@@ -1,14 +1,4 @@
-"""Shared per-process infrastructure for the db lane.
-
-``SinglePostgres`` mimics the common real-world pattern of a session-singleton
-container: started once per process, reused by every db test module. Under
-test-level distribution (pytest-xdist), every worker process that touches a
-db test starts its own copy of this container.
-
-``FIXED_PORT`` simulates a daemon that owns one well-known port — the kind of
-process-global resource that collides when tests sharing it are scheduled
-onto different workers at the same time.
-"""
+"""Shared per-process infrastructure for the db lane."""
 
 from __future__ import annotations
 
@@ -36,9 +26,7 @@ class SinglePostgres:
 
     @staticmethod
     def _connect_verified(url: str, attempts: int = 10) -> psycopg.Connection:
-        # The stock postgres image restarts once during first-boot init; a
-        # connection that lands in that window dies on first use, so verify
-        # each attempt with a real round trip.
+        # The postgres image restarts during first-boot init; verify each attempt with a real round trip.
         last_error: psycopg.OperationalError | None = None
         for _ in range(attempts):
             try:

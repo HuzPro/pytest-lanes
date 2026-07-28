@@ -1,17 +1,4 @@
-"""Give every lane its own report files, then aggregate them for the user.
-
-Passthrough argv reaches every lane child, so an argument naming one output
-file — ``--junitxml=report.xml``, ``--cov-report=xml:cov.xml`` — makes the
-lanes race for that file. The observable damage differed per format: JUnit
-XML lost every lane but the last writer (silently, with a zero exit code),
-while coverage's SQLite data file corrupted outright and failed the run.
-
-This module is the shell around the two pure modules that decide *what* to
-rewrite (:mod:`pytest_lanes.report_merge`,
-:mod:`pytest_lanes.coverage_support`): it redirects each lane to a private
-staging path before launch, and after the run merges the pieces into the
-single artifact the user asked for.
-"""
+"""Give every lane its own report files, then aggregate them for the user."""
 
 from __future__ import annotations
 
@@ -37,8 +24,7 @@ from pytest_lanes.report_merge import (
     merged_junit_document,
 )
 
-# pytest-cov reads an empty report spec as "measure, report nothing"; the
-# parent must honour that rather than printing a report the user disabled.
+# pytest-cov reads an empty report spec as "measure, report nothing"; honour it.
 _NO_REPORT_SPEC = ""
 _SUPPRESS_CHILD_REPORTS = "--cov-report="
 _COVERAGE_MODULE = "coverage"
@@ -62,11 +48,7 @@ class LaneReportPlan:
 def prepare_lane_reports(
     commands: Sequence[LaneCommand], staging_dir: Path
 ) -> tuple[list[LaneCommand], LaneReportPlan]:
-    """Redirect each lane's report output into ``staging_dir``.
-
-    Returns the rewritten commands and the plan describing what to aggregate.
-    Commands are returned unchanged when the run asks for no reports.
-    """
+    """Redirect each lane's report output into ``staging_dir``."""
     requested_args = commands[0].args if commands else ()
     plan = LaneReportPlan(
         staging_dir=staging_dir,
@@ -95,11 +77,7 @@ def _prepared(command: LaneCommand, plan: LaneReportPlan) -> LaneCommand:
 
 
 def aggregate_lane_reports(plan: LaneReportPlan, lane_names: Iterable[str]) -> None:
-    """Fold the staged per-lane reports into the artifacts the user asked for.
-
-    Failures here are reported and swallowed: the tests have already run, and
-    losing a report must not turn a green suite red.
-    """
+    """Fold the staged per-lane reports into the artifacts the user asked for."""
     if plan.junit_target is not None:
         _merge_junit_reports(plan, lane_names)
     if plan.coverage_requested:
@@ -130,8 +108,7 @@ def _combine_coverage(plan: LaneReportPlan) -> None:
     for report in plan.coverage_reports:
         command = coverage_report_command(report)
         if command is None:
-            # Never silently drop a requested report: an unsupported spec is
-            # the user's cue to run coverage themselves.
+            # An unsupported spec is reported, never silently dropped.
             print(
                 f"pytest-lanes: coverage report '{report}' is not supported "
                 "for lane runs; the combined data file was still written."

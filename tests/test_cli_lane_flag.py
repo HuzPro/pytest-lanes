@@ -46,9 +46,9 @@ def test_parse_lane_selection_returns_empty_tuple_for_none_value() -> None:
 
 
 def test_parse_lane_selection_splits_comma_separated_names() -> None:
-    assert parse_lane_selection("postgres, timescale,acceptance ") == (
+    assert parse_lane_selection("postgres, redis,acceptance ") == (
         "postgres",
-        "timescale",
+        "redis",
         "acceptance",
     )
 
@@ -64,8 +64,8 @@ def test_apply_lane_filter_marks_every_item_with_its_lane_marker() -> None:
     config = _example_lane_config()
     root = Path("C:/repo")
     postgres_item = _ItemWithMarkers(
-        path=root / "backend" / "postgres" / "tests" / "test_x.py",
-        nodeid="backend/postgres/tests/test_x.py::t",
+        path=root / "services" / "postgres" / "tests" / "test_x.py",
+        nodeid="services/postgres/tests/test_x.py::t",
     )
     unit_item = _ItemWithMarkers(
         path=root / "app" / "tests" / "test_normal.py",
@@ -88,8 +88,8 @@ def test_apply_lane_filter_skips_items_outside_selected_lanes() -> None:
     config = _example_lane_config()
     root = Path("C:/repo")
     postgres_item = _ItemWithMarkers(
-        path=root / "backend" / "postgres" / "tests" / "test_x.py",
-        nodeid="backend/postgres/tests/test_x.py::t",
+        path=root / "services" / "postgres" / "tests" / "test_x.py",
+        nodeid="services/postgres/tests/test_x.py::t",
     )
     unit_item = _ItemWithMarkers(
         path=root / "app" / "tests" / "test_normal.py",
@@ -123,10 +123,7 @@ def _no_fallback_lane_config() -> LaneConfig:
 def test_apply_lane_filter_leaves_unclassifiable_items_unmarked_without_a_selection() -> (
     None
 ):
-    # Arrange: a config with no fallback lane, and an item (say, an example
-    # under docs/) that no lane classifies. This happens whenever
-    # orchestration steps aside (-k, -m) and plain pytest collects paths the
-    # lanes never claim.
+    # Arrange: no fallback lane, and an item no lane classifies.
     config = _no_fallback_lane_config()
     root = Path("C:/repo")
     unclaimed_item = _ItemWithMarkers(
@@ -134,8 +131,7 @@ def test_apply_lane_filter_leaves_unclassifiable_items_unmarked_without_a_select
         nodeid="docs/examples/test_handler.py::t",
     )
 
-    # Act: marking is advisory when no --lane selection is active - it must
-    # not crash collection over a test the lanes simply do not know.
+    # Act: advisory without a --lane selection; must not crash collection.
     apply_lane_filter(
         items=[unclaimed_item],
         rootpath=root,
@@ -151,8 +147,7 @@ def test_apply_lane_filter_leaves_unclassifiable_items_unmarked_without_a_select
 def test_apply_lane_filter_stays_loud_for_unclassifiable_items_under_a_selection() -> (
     None
 ):
-    # Arrange: same unclaimed item, but the caller asked for lane semantics
-    # (--lane=postgres, or a lane child selecting its own tests).
+    # Arrange: same unclaimed item, but under an explicit lane selection.
     config = _no_fallback_lane_config()
     root = Path("C:/repo")
     unclaimed_item = _ItemWithMarkers(
@@ -160,8 +155,7 @@ def test_apply_lane_filter_stays_loud_for_unclassifiable_items_under_a_selection
         nodeid="docs/examples/test_handler.py::t",
     )
 
-    # Act / Assert: an unclassifiable item under an explicit lane selection
-    # means classifiers and subprocess paths disagree - stay loud.
+    # Act / Assert: classifiers and subprocess paths disagree; stay loud.
     with pytest.raises(LookupError, match="docs/examples/test_handler.py"):
         apply_lane_filter(
             items=[unclaimed_item],
@@ -177,9 +171,9 @@ def test_collection_args_restrict_pytest_to_postgres_lane_paths() -> None:
 
     positional, ignores = collection_args_for_lanes(("postgres",), config)
 
-    assert "backend/postgres/tests" in positional
-    assert "app/tests/test_first_run_configuration_service.py" in positional
-    assert "backend/postgres/tests/test_sensor_logger.py" in ignores
+    assert "services/postgres/tests" in positional
+    assert "app/tests/test_checkout_settings_service.py" in positional
+    assert "services/postgres/tests/test_cache_sync.py" in ignores
 
 
 def test_collection_args_for_other_lane_expands_into_ignore_other_lanes_union() -> None:
@@ -187,11 +181,10 @@ def test_collection_args_for_other_lane_expands_into_ignore_other_lanes_union() 
 
     positional, ignores = collection_args_for_lanes(("other",), config)
 
-    # The 'other' lane has no positional paths — collection defaults to rootdir,
-    # then every other lane's paths are added as --ignore= entries.
+    # No positional paths: collection defaults to rootdir minus --ignore= entries.
     assert positional == []
-    assert "backend/postgres/tests" in ignores
-    assert "backend/http_adapter/tests" in ignores
+    assert "services/postgres/tests" in ignores
+    assert "services/api/tests" in ignores
     assert "test_full_build_verification.py" in ignores
     # Explicit subprocess_ignore entries also land in the ignore list.
     assert "experiments" in ignores
@@ -200,22 +193,22 @@ def test_collection_args_for_other_lane_expands_into_ignore_other_lanes_union() 
 def test_collection_args_for_multiple_lanes_union_the_positional_args() -> None:
     config = _example_lane_config()
 
-    positional, _ = collection_args_for_lanes(("postgres", "timescale"), config)
+    positional, _ = collection_args_for_lanes(("postgres", "redis"), config)
 
-    assert "backend/postgres/tests" in positional
-    assert "backend/postgres/tests/test_sensor_logger.py" in positional
+    assert "services/postgres/tests" in positional
+    assert "services/postgres/tests/test_cache_sync.py" in positional
 
 
 def test_apply_lane_filter_admits_multiple_selected_lanes() -> None:
     config = _example_lane_config()
     root = Path("C:/repo")
     postgres_item = _ItemWithMarkers(
-        path=root / "backend" / "postgres" / "tests" / "test_x.py",
-        nodeid="backend/postgres/tests/test_x.py::t",
+        path=root / "services" / "postgres" / "tests" / "test_x.py",
+        nodeid="services/postgres/tests/test_x.py::t",
     )
-    timescale_item = _ItemWithMarkers(
-        path=root / "backend" / "postgres" / "tests" / "test_sensor_logger.py",
-        nodeid="backend/postgres/tests/test_sensor_logger.py::t",
+    redis_item = _ItemWithMarkers(
+        path=root / "services" / "postgres" / "tests" / "test_cache_sync.py",
+        nodeid="services/postgres/tests/test_cache_sync.py::t",
     )
     unit_item = _ItemWithMarkers(
         path=root / "app" / "tests" / "test_normal.py",
@@ -223,13 +216,13 @@ def test_apply_lane_filter_admits_multiple_selected_lanes() -> None:
     )
 
     apply_lane_filter(
-        items=[postgres_item, timescale_item, unit_item],
+        items=[postgres_item, redis_item, unit_item],
         rootpath=root,
         lane_config=config,
-        selected_lanes=("postgres", "timescale"),
+        selected_lanes=("postgres", "redis"),
         marker_factory=_MarkerStub,
     )
 
     assert "skip" not in _marker_names(postgres_item)
-    assert "skip" not in _marker_names(timescale_item)
+    assert "skip" not in _marker_names(redis_item)
     assert "skip" in _marker_names(unit_item)

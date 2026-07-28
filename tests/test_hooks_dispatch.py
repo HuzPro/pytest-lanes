@@ -1,10 +1,4 @@
-"""Integration-style tests for the orchestration dispatch path.
-
-These exercise the ``pytest_cmdline_main`` wiring: orchestration_mode →
-build_lane_commands → run_lane_commands. The lane config itself comes from
-the in-memory example builder used by ``test_lane_assignment``, so we
-do not depend on a real ``pytest.ini``.
-"""
+"""Integration-style tests for the orchestration dispatch path."""
 
 from __future__ import annotations
 
@@ -93,9 +87,7 @@ def test_targeted_path_returns_none_and_does_not_call_run_lane_commands() -> Non
 
 
 def test_disabling_capture_streams_lane_output_live() -> None:
-    # Given `pytest . -s`, the developer asked to see output as it happens;
-    # lanes must stream their children instead of folding output into the
-    # summary and showing it only for failures.
+    # Given `pytest . -s`: stream children instead of folding output.
     config = _FakeConfig(rootpath=Path("C:/repo"), invocation_args=(".", "-s"))
 
     with (
@@ -159,9 +151,9 @@ def test_plain_pytest_dot_dispatches_five_standard_lanes() -> None:
     dispatched_commands = mock_run.call_args.args[0]
     assert [command.name for command in dispatched_commands] == [
         "postgres",
-        "timescale",
+        "redis",
         "acceptance",
-        "http_adapter",
+        "api",
         "other",
     ]
 
@@ -184,10 +176,10 @@ def test_full_flag_dispatches_six_lanes_including_full_build_verification() -> N
     dispatched_commands = mock_run.call_args.args[0]
     assert [command.name for command in dispatched_commands] == [
         "postgres",
-        "timescale",
+        "redis",
         "acceptance",
         "full_build_verification",
-        "http_adapter",
+        "api",
         "other",
     ]
 
@@ -527,8 +519,8 @@ def test_lanes_explain_prints_classification_for_collected_items(
     monkeypatch.setattr(hooks, "_lane_config", _example_lane_config())
     monkeypatch.setattr(hooks, "_rootpath", Path("C:/repo"))
     item = _FakeItem(
-        path=Path("C:/repo/backend/http_adapter/tests/test_routes.py"),
-        nodeid="backend/http_adapter/tests/test_routes.py::test_get",
+        path=Path("C:/repo/services/api/tests/test_routes.py"),
+        nodeid="services/api/tests/test_routes.py::test_get",
     )
     session = SimpleNamespace(
         config=_FakeConfig(rootpath=Path("C:/repo"), explain=True), items=[item]
@@ -538,8 +530,8 @@ def test_lanes_explain_prints_classification_for_collected_items(
 
     out = capsys.readouterr().out
     assert (
-        "backend/http_adapter/tests/test_routes.py::test_get -> http_adapter "
-        "(classifier_path_prefixes: backend/http_adapter/tests/)"
+        "services/api/tests/test_routes.py::test_get -> api "
+        "(classifier_path_prefixes: services/api/tests/)"
     ) in out
 
 

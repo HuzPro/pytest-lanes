@@ -8,7 +8,7 @@ cd examples/demo
 pytest .
 ```
 
-The summary reports a parallelism ratio around 2x — both lanes ran at the
+The summary reports a parallelism ratio around 2x: both lanes ran at the
 same time. To see the serial baseline, disable orchestration with the
 plugin's kill-switch environment variable:
 

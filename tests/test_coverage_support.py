@@ -1,11 +1,4 @@
-"""Behavioral tests for per-lane coverage data files and parent-side reports.
-
-Every lane child inherits the user's ``--cov`` argv, so all of them write the
-same ``.coverage`` SQLite file and coverage.py dies with ``no such table:
-other_db.file`` - reported as a lane failure even when every test passed.
-These tests pin the fix: one data file per lane, measurement left on in the
-children, and report generation deferred to the parent after combining.
-"""
+"""Behavioral tests for per-lane coverage data files and parent-side reports."""
 
 from __future__ import annotations
 

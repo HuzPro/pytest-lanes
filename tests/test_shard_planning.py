@@ -1,11 +1,4 @@
-"""Behavioral tests for static shard planning.
-
-The planner simulates the real scheduler (bounded pool, longest-first)
-with recorded durations to decide — deterministically, before launch —
-whether splitting the longest divisible lane into two shards actually
-improves the projected makespan by enough to pay for the second
-environment. Same inputs, same plan, every run.
-"""
+"""Behavioral tests for static shard planning."""
 
 from __future__ import annotations
 
@@ -129,8 +122,7 @@ def _plan_with_persisted(persisted: tuple[str, ...]):
 
 
 def test_persisted_cut_is_reused_while_it_stays_balanced() -> None:
-    # (a, c) = 14s vs (b, d) = 13s — within the 20% ratio, so the sticky
-    # cut wins even though a fresh cut would choose differently.
+    # 14s vs 13s: within the 20% ratio, the sticky cut wins.
     plan = _plan_with_persisted(("db/test_a.py", "db/test_c.py"))
 
     assert plan.first_shard_files == ("db/test_a.py", "db/test_c.py")
@@ -138,8 +130,7 @@ def test_persisted_cut_is_reused_while_it_stays_balanced() -> None:
 
 
 def test_drifted_durations_trigger_a_loud_recut() -> None:
-    # Persisted (a, b, c) = 21s vs (d) = 6s — 71% imbalance; the plan must
-    # re-cut to the balanced halves and say so.
+    # 21s vs 6s: 71% imbalance forces a loud re-cut.
     plan = _plan_with_persisted(("db/test_a.py", "db/test_b.py", "db/test_c.py"))
 
     assert plan.first_shard_files == ("db/test_a.py", "db/test_b.py")
@@ -204,8 +195,7 @@ def test_shard_results_merge_back_into_the_parent_lane_record(tmp_path: Path) ->
     postgres = records["postgres"]
     assert dict(postgres.files) == {"db/test_a.py": 7.0, "db/test_b.py": 6.0}
     assert postgres.startup == 2.5
-    # Parent total approximates the unsharded serial run: fixed costs once
-    # plus every file.
+    # Parent total approximates the unsharded serial run.
     assert postgres.total == 2.5 + 1.0 + 13.0
 
 
@@ -228,7 +218,7 @@ def test_persisted_plan_for_a_different_lane_is_ignored_by_the_planner() -> None
         records=_RECORDS,
         max_workers=4,
         file_exists=lambda path: True,
-        persisted_plan=("timescale", ("db/test_a.py", "db/test_b.py", "db/test_c.py")),
+        persisted_plan=("redis", ("db/test_a.py", "db/test_b.py", "db/test_c.py")),
     )
 
     # A stale plan for another lane cannot steer this lane's cut.
@@ -252,8 +242,7 @@ def test_unbounded_workers_makespan_is_the_longest_lane() -> None:
 
 
 def test_bounded_pool_queues_lanes_longest_first_onto_freed_slots() -> None:
-    # W=2, longest-first order: 10 and 5 start; 5 finishes at t=5, 3
-    # launches and ends at t=8; 10 bounds the makespan.
+    # W=2 longest-first: 10 bounds the makespan.
     assert simulate_makespan([5.0, 10.0, 3.0], max_workers=2) == 10.0
 
     # W=2, order 8,7,6: 8 and 7 start; 7 frees at t=7, 6 runs to t=13.

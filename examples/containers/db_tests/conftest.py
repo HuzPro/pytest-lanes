@@ -1,8 +1,4 @@
-"""Every db module holds the fixed daemon port for its whole duration.
-
-Sequential execution (one process per lane) binds and releases cleanly;
-concurrent workers running two db modules at once collide on the bind.
-"""
+"""Every db module holds the fixed daemon port for its whole duration."""
 
 from __future__ import annotations
 

@@ -1,11 +1,4 @@
-"""Calibrated CPU work standing in for real test computation.
-
-One unit is ~1 second of single-core work on the reference machine
-(Ryzen 5 7600); everything scales uniformly elsewhere, so mode-to-mode
-ratios transfer. Unlike sleeps, this contends for physical cores — which
-is what makes worker oversubscription and duplicated environments cost
-what they cost in real suites.
-"""
+"""Calibrated CPU work standing in for real test computation."""
 
 import hashlib
 

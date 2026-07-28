@@ -1,19 +1,4 @@
-"""Child-side run measurement for lane subprocesses.
-
-A lane child (detected via ``PYTEST_LANES_CHILD``) measures its own run
-when the executor points it at an output path via
-``PYTEST_LANES_DURATIONS_OUT``:
-
-* ``collect`` — session start to end of collection;
-* ``startup`` — end of collection to the first test's setup, which is the
-  fixture/environment spin-up (a container boot lands here);
-* ``files`` — test-report durations summed per file;
-* ``total`` — session wall time.
-
-The parent reads the JSON after the child exits and merges it into the
-duration store. Timing marks are tolerant of missing phases (a child that
-collects nothing writes zero startup and no files).
-"""
+"""Child-side run measurement for lane subprocesses."""
 
 from __future__ import annotations
 

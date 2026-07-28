@@ -1,15 +1,4 @@
-"""Ad-hoc lane construction for ``--lane-def`` and ``--lanes-auto``.
-
-Both build a regular :class:`~pytest_lanes.config.LaneConfig` without any
-INI file, so the whole downstream pipeline (classification, subprocess argv
-construction, ``--lane`` selection, ``--lanes-explain``) works unchanged.
-Ad-hoc lanes apply no markers — markers stay an INI feature.
-
-The auto-generated fallback lane keeps the "``pytest .`` runs everything"
-invariant: it claims every test outside the declared lanes. Because it may
-legitimately claim nothing, it is marked ``tolerate_no_tests`` so pytest's
-NO_TESTS_COLLECTED exit from that subprocess does not fail the run.
-"""
+"""Ad-hoc lane construction for ``--lane-def`` and ``--lanes-auto``."""
 
 from __future__ import annotations
 
@@ -31,12 +20,7 @@ def resolve_lane_config_or_none(
     lanes_auto: bool,
     rootpath: Path,
 ) -> LaneConfig | None:
-    """Resolve the active lane config: CLI definitions > auto partition > files.
-
-    Returns ``None`` when nothing configures lanes — the dormancy guarantee:
-    without a lane config file or an explicit zero-config flag, the plugin
-    behaves as if it were not installed.
-    """
+    """Resolve the active lane config: CLI definitions > auto partition > files."""
     if cli_definitions:
         return lane_config_from_definitions(cli_definitions)
     if lanes_auto:
@@ -76,12 +60,7 @@ def _parse_definition(definition: str) -> LaneSpec:
 
 
 def auto_lane_config_or_none(rootpath: Path) -> LaneConfig | None:
-    """Build one lane per test-bearing immediate subdirectory of ``rootpath``.
-
-    Returns ``None`` when fewer than two subdirectory lanes exist — a
-    partition of one is serial execution with extra overhead, so the run
-    should fall back to plain pytest instead.
-    """
+    """Build one lane per test-bearing immediate subdirectory of ``rootpath``."""
     lane_dir_names = sorted(
         directory.name
         for directory in rootpath.iterdir()

@@ -1,9 +1,4 @@
-"""Time this example suite under lanes, serial pytest, and xdist modes.
-
-Run from this directory: ``python bench.py`` (add ``--runs N`` for more
-rounds). Docker must be running. xdist modes are skipped when pytest-xdist
-is not installed.
-"""
+"""Time this example suite under lanes, serial pytest, and xdist modes."""
 
 from __future__ import annotations
 

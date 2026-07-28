@@ -1,11 +1,4 @@
-"""Behavioral tests for config discovery and dormant-mode behavior.
-
-These behaviors are what make the plugin safe to install globally: it must
-stay dormant in projects without lane configuration, discover lanes in any
-of pytest.ini / pyproject.toml / tox.ini / setup.cfg (in pytest's own
-precedence order), and fall back to a plain pytest run when lanes exist but
-no subprocess order is declared.
-"""
+"""Behavioral tests for config discovery and dormant-mode behavior."""
 
 from __future__ import annotations
 
@@ -117,8 +110,7 @@ def test_discovery_reads_lanes_from_pyproject_when_no_ini_declares_them(
 
 
 def test_discovery_prefers_pytest_ini_over_pyproject(tmp_path: Path) -> None:
-    # pytest's own config precedence puts pytest.ini above pyproject.toml;
-    # lane discovery must agree with it.
+    # Discovery must agree with pytest's own config precedence.
     (tmp_path / "pytest.ini").write_text(_MINIMAL_LANES_BODY, encoding="utf-8")
     (tmp_path / "pyproject.toml").write_text(_PYPROJECT_LANES_BODY, encoding="utf-8")
 
@@ -137,8 +129,7 @@ def test_discovery_prefers_pyproject_over_tox_ini(tmp_path: Path) -> None:
 
 
 def test_discovery_skips_a_pyproject_without_a_lanes_table(tmp_path: Path) -> None:
-    # A normal pyproject (no [tool.pytest-lanes]) must not stop discovery
-    # from reaching a tox.ini that does declare lanes.
+    # A pyproject without [tool.pytest-lanes] must not stop discovery.
     (tmp_path / "pyproject.toml").write_text(
         '[project]\nname = "demo"\n', encoding="utf-8"
     )

@@ -1,16 +1,4 @@
-"""Lane configuration schema and INI loader.
-
-The plugin reads its lane definitions from ``[pytest-lanes]`` and
-``[pytest-lanes:<name>]`` sections inside the host project's INI file
-(``pytest.ini``, ``tox.ini``, or ``setup.cfg`` — the first one at rootdir
-that declares the section wins). This module turns that INI text into
-immutable :class:`LaneSpec` and :class:`LaneConfig` dataclasses and validates
-every cross-reference (marker declarations, subprocess order names,
-ignore-other-lanes uniqueness).
-
-Lane markers must be declared in the same file, in ``[pytest].markers``
-(``[tool:pytest].markers`` for ``setup.cfg``).
-"""
+"""Lane configuration schema and INI loader."""
 
 from __future__ import annotations
 
@@ -147,8 +135,7 @@ def _parse_max_workers(parser: configparser.ConfigParser) -> int | None:
 
 
 def _parse_declared_markers(parser: configparser.ConfigParser) -> set[str]:
-    # pytest.ini and tox.ini declare markers under [pytest]; setup.cfg uses
-    # [tool:pytest].
+    # setup.cfg uses [tool:pytest]; pytest.ini and tox.ini use [pytest].
     markers_text = ""
     for section in ("pytest", "tool:pytest"):
         if parser.has_section(section):

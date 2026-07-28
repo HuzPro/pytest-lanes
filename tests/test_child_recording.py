@@ -1,11 +1,4 @@
-"""Behavioral tests for the child-side run recorder.
-
-Lane children measure their own run: ``collect`` (session start to end of
-collection), ``startup`` (end of collection to first test — the fixture/
-environment spin-up, e.g. a container boot), and per-file test durations.
-The executor points each child at a JSON output path via env var; the
-parent merges the file into the duration store after the child exits.
-"""
+"""Behavioral tests for the child-side run recorder."""
 
 from __future__ import annotations
 
@@ -25,8 +18,7 @@ def _recorder_with_scripted_clock(
 
 
 def test_recorder_measures_collect_startup_and_total(tmp_path: Path) -> None:
-    # session start at t=10, collection done at t=11, first test at t=17
-    # (6s of fixture spin-up), session end at t=40.
+    # t=10 start, t=11 collected, t=17 first test (6s spin-up), t=40 end.
     recorder = _recorder_with_scripted_clock(tmp_path, [10.0, 11.0, 17.0, 40.0])
 
     recorder.mark_session_start()

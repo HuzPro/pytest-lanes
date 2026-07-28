@@ -1,9 +1,4 @@
-"""Formatting for ``--lanes-explain`` output.
-
-Turns the :class:`~pytest_lanes.lanes.LaneAssignment` produced for each
-collected item into the listing printed after collection: one line per test
-showing its lane and the classifier rule that claimed it, plus a totals line.
-"""
+"""Formatting for ``--lanes-explain`` output."""
 
 from __future__ import annotations
 

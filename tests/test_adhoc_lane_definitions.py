@@ -1,10 +1,4 @@
-"""Behavioral tests for ``--lane-def`` ad-hoc lane construction.
-
-``--lane-def name=path[,path...]`` builds a LaneConfig with no INI file:
-each definition becomes one lane claiming its paths, plus an auto-generated
-fallback lane so ``pytest .`` still runs every test not claimed by a
-definition. Ad-hoc lanes apply no markers — markers stay an INI feature.
-"""
+"""Behavioral tests for ``--lane-def`` ad-hoc lane construction."""
 
 from __future__ import annotations
 

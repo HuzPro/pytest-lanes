@@ -1,12 +1,4 @@
-"""Rootdir lane-config discovery across the supported file formats.
-
-One question, one module: given a project root, which file configures the
-lanes? Candidates are tried in pytest's own config precedence order —
-``pytest.ini``, ``pyproject.toml``, ``tox.ini``, ``setup.cfg`` — and the
-first file that declares lane configuration wins. A file that exists but
-declares no lanes is skipped, not an error; a file that declares lanes
-badly raises :class:`~pytest_lanes.config.LaneConfigError` loudly.
-"""
+"""Rootdir lane-config discovery across the supported file formats."""
 
 from __future__ import annotations
 
@@ -21,11 +13,7 @@ _PYPROJECT_FILENAME = "pyproject.toml"
 
 
 def discover_lane_config(rootpath: Path) -> LaneConfig | None:
-    """Return the root's lane config, or ``None`` when nothing declares one.
-
-    ``None`` is the dormancy guarantee: without lane configuration the
-    plugin behaves as if it were not installed.
-    """
+    """Return the root's lane config, or ``None`` when nothing declares one."""
     for filename in DISCOVERY_ORDER:
         config = _lane_config_in(rootpath / filename)
         if config is not None:

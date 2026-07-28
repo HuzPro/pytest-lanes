@@ -1,9 +1,4 @@
-"""Behavioral tests for build_lane_commands driven by LaneConfig.
-
-Each test pins the argv/env contract of one subprocess-lane feature: canonical
-ordering, path and node-id targeting, ``--ignore=`` wiring (explicit and
-``subprocess_ignore_other_lanes``), env propagation, and passthrough args.
-"""
+"""Behavioral tests for build_lane_commands driven by LaneConfig."""
 
 from __future__ import annotations
 
@@ -11,7 +6,7 @@ from pytest_lanes.config import LaneConfig, LaneSpec
 from pytest_lanes.lanes import LaneCommand, build_lane_commands
 from tests.test_lane_assignment import _example_lane_config
 
-_FBV_NODEID = "test_full_build_verification.py::test_build_produces_windows_executable"
+_FBV_NODEID = "test_full_build_verification.py::test_build_produces_installer"
 
 
 def _argv_of(commands: list[LaneCommand], lane_name: str) -> tuple[str, ...]:
@@ -34,14 +29,14 @@ def test_standard_mode_emits_five_lane_subprocesses_in_canonical_order() -> None
 
     assert [command.name for command in commands] == [
         "postgres",
-        "timescale",
+        "redis",
         "acceptance",
-        "http_adapter",
+        "api",
         "other",
     ]
 
 
-def test_full_mode_inserts_full_build_verification_before_http_adapter() -> None:
+def test_full_mode_inserts_full_build_verification_before_api() -> None:
     config = _example_lane_config()
 
     commands = build_lane_commands(
@@ -50,10 +45,10 @@ def test_full_mode_inserts_full_build_verification_before_http_adapter() -> None
 
     assert [command.name for command in commands] == [
         "postgres",
-        "timescale",
+        "redis",
         "acceptance",
         "full_build_verification",
-        "http_adapter",
+        "api",
         "other",
     ]
 
@@ -66,9 +61,9 @@ def test_postgres_lane_argv_includes_subprocess_paths_and_ignores() -> None:
 
     postgres_args = _argv_of(commands, "postgres")
 
-    assert "backend/postgres/tests" in postgres_args
+    assert "services/postgres/tests" in postgres_args
     assert "app/tests/test_config_e2e.py" in postgres_args
-    assert "--ignore=backend/postgres/tests/test_sensor_logger.py" in postgres_args
+    assert "--ignore=services/postgres/tests/test_cache_sync.py" in postgres_args
 
 
 def test_full_build_verification_lane_uses_nodeid_argument() -> None:
@@ -101,14 +96,11 @@ def test_other_lane_auto_ignores_paths_from_every_other_lane() -> None:
 
     other_args = _argv_of(commands, "other")
 
-    assert "--ignore=backend/postgres/tests" in other_args
-    assert "--ignore=backend/postgres/tests/test_sensor_logger.py" in other_args
-    assert "--ignore=backend/http_adapter/tests" in other_args
+    assert "--ignore=services/postgres/tests" in other_args
+    assert "--ignore=services/postgres/tests/test_cache_sync.py" in other_args
+    assert "--ignore=services/api/tests" in other_args
     assert "--ignore=app/tests/test_config_e2e.py" in other_args
-    assert (
-        "--ignore=experiments/keyboard-acceptance-testing/acceptance_tests"
-        in other_args
-    )
+    assert "--ignore=experiments/checkout-redesign/acceptance_tests" in other_args
     assert "--ignore=tests/backend_acceptance" in other_args
     assert "--ignore=test_full_build_verification.py" in other_args
 
@@ -137,10 +129,7 @@ def test_passthrough_args_precede_lane_specific_args_for_every_lane() -> None:
 
 
 def test_every_lane_child_disables_the_cacheprovider() -> None:
-    """Concurrent children racing on `.pytest_cache` creation is a real
-    failure mode (transient `pytest-cache-files-*` dirs break sibling
-    collection on Windows), and last-writer-wins would clobber `lastfailed`
-    anyway — children must not touch pytest's cache at all."""
+    """Concurrent children racing on `.pytest_cache` creation is a real"""
     config = _example_lane_config()
 
     commands = build_lane_commands(

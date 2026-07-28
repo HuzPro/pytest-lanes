@@ -1,11 +1,4 @@
-"""Invocation parsing helpers for pytest orchestration decisions.
-
-The plugin needs to inspect the raw argv pytest was called with to decide
-whether to fan out into lane subprocesses or behave as plain pytest. A user
-who passes ``-k something`` or ``--lane=postgres`` or a concrete path is
-expressing a custom selection — orchestration steps aside in those cases so
-their request flows through to a single pytest invocation.
-"""
+"""Invocation parsing helpers for pytest orchestration decisions."""
 
 from __future__ import annotations
 
@@ -22,9 +15,7 @@ SELECTION_FLAGS = frozenset(
     }
 )
 
-# Asking pytest not to capture output is asking to see it *now*; the parent
-# honours that by streaming each lane child live instead of folding its
-# output into the end-of-run summary.
+# Uncaptured output streams live instead of folding into the summary.
 _CAPTURE_DISABLING_ARGS = frozenset({"-s", "--capture=no", "--capture"})
 _SHORT_OPTION_CLUSTER = re.compile(r"^-[a-zA-Z]+$")
 _CAPTURE_DISABLING_SHORT_OPTION = "s"
@@ -58,11 +49,7 @@ def has_custom_selection(invocation_args_value: tuple[str, ...]) -> bool:
 
 
 def wants_live_lane_output(invocation_args_value: tuple[str, ...]) -> bool:
-    """Did the caller disable capture — i.e. ask to see output as it happens?
-
-    ``-s`` also arrives bundled with other short options (``-sv``, ``-xs``),
-    which is how it is most often typed.
-    """
+    """Did the caller disable capture, i.e. ask to see output as it happens?"""
     for arg in invocation_args_value:
         if arg in _CAPTURE_DISABLING_ARGS:
             return True
@@ -96,11 +83,7 @@ def passthrough_args_for_lanes(
 def _args_without_lane_def_values(
     invocation_args_value: tuple[str, ...],
 ) -> tuple[str, ...]:
-    """Drop the value token following each bare ``--lane-def`` flag.
-
-    ``--lane-def db=tests/db`` arrives as two argv tokens; the second looks
-    positional but is the flag's value, not a collection target.
-    """
+    """Drop the value token following each bare ``--lane-def`` flag."""
     remaining: list[str] = []
     skip_next = False
     for arg in invocation_args_value:

@@ -1,15 +1,4 @@
-"""Static shard planning: decide before launch whether to split a lane.
-
-The planner runs the real scheduling semantics forward on a virtual clock
-— bounded pool, longest-first launch order, recorded durations — once for
-the unsharded command list and once with the candidate split of the single
-longest ``divisible = files`` lane. The split only happens when the
-projected makespan improves by at least the configured saving, so a shard
-(which re-pays the lane's startup and collect cost in a second
-environment) can never be projected to make the run slower.
-
-Everything here is pure: same inputs, same plan, every run.
-"""
+"""Static shard planning: decide before launch whether to split a lane."""
 
 from __future__ import annotations
 
@@ -56,11 +45,7 @@ def load_persisted_plan(path: Path) -> tuple[str, tuple[str, ...]] | None:
 
 @dataclass(frozen=True)
 class ShardPlan:
-    """The deterministic outcome of shard planning for one run.
-
-    ``commands`` is always usable as-is: unchanged when no split paid off,
-    or with the divisible lane replaced by its two shard commands.
-    """
+    """The deterministic outcome of shard planning for one run."""
 
     commands: tuple[LaneCommand, ...]
     sharded_lane: str = ""
@@ -71,12 +56,7 @@ class ShardPlan:
 
 
 def simulate_makespan(durations: Sequence[float], max_workers: int) -> float:
-    """Project the wall time of running lanes on the bounded pool.
-
-    Mirrors the executor: lanes launch longest-first; at most
-    ``max_workers`` run at once; a queued lane starts when the earliest
-    running lane finishes.
-    """
+    """Project the wall time of running lanes on the bounded pool."""
     if not durations:
         return 0.0
 
@@ -261,8 +241,7 @@ def _projected_shard_seconds(
     first_half: tuple[tuple[str, float], ...],
     second_half: tuple[tuple[str, float], ...],
 ) -> tuple[float, float]:
-    """Each shard re-pays startup + collect; unattributed lane overhead is
-    split evenly so the projection can only overstate shard cost."""
+    """Each shard re-pays measured startup + collect."""
     files_seconds = sum(seconds for _, seconds in record.files)
     residual = max(record.total - record.startup - record.collect - files_seconds, 0.0)
     fixed = record.startup + record.collect + residual / 2
@@ -293,9 +272,7 @@ def _shard_commands(
         second_args.extend(
             f"--ignore={path}" for path in other_lane_ignores(spec, lane_config)
         )
-    # The second shard claims "the rest of the lane" by ignore-listing the
-    # first shard's files, so files added since recording still run — and
-    # if stale data leaves it nothing to collect, that is success.
+    # Shard 2 ignore-lists shard 1's files, so files added since recording still run.
     second = LaneCommand(
         name=f"{spec.name}~2of2",
         args=tuple(second_args),

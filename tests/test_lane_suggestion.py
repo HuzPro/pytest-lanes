@@ -1,10 +1,4 @@
-"""Behavioral tests for ``--lanes-suggest`` static project scanning.
-
-The suggester reads structure only — directory layout, conftest.py ASTs
-(scoped fixtures, infrastructure imports) — and prints a commented
-``[pytest-lanes]`` INI block framed as a suggestion to review, never an
-oracle. No user code is executed.
-"""
+"""Behavioral tests for ``--lanes-suggest`` static project scanning."""
 
 from __future__ import annotations
 
@@ -70,8 +64,7 @@ def test_suggestion_orders_infrastructure_heavy_lanes_first(tmp_path: Path) -> N
     suggestion = format_lane_suggestion(scan_project(tmp_path))
 
     assert "lanes = db_tests api_tests other" in suggestion
-    # No root-level stray tests in this layout: scheduling the empty
-    # fallback would fail the run, so it must stay out of the order list.
+    # An empty fallback would fail the run; keep it out of the order list.
     assert "subprocess_order_standard = db_tests api_tests\n" in suggestion
 
 

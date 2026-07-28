@@ -1,9 +1,4 @@
-"""``pytest11`` entry-point module.
-
-Re-exports the hook callables so pytest discovers them when the package is
-installed. Vendored setups can import the same names from a repo-root
-``conftest.py`` instead of installing the package — see README.md.
-"""
+"""``pytest11`` entry-point module."""
 
 from pytest_lanes.hooks import (
     pytest_addoption,

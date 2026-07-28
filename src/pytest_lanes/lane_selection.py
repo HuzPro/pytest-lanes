@@ -1,11 +1,4 @@
-"""``--lane=<name>`` parsing and per-item filtering.
-
-These functions are pure: they take their inputs (CLI value, items list,
-:class:`~pytest_lanes.config.LaneConfig`) and return / mutate without
-touching pytest internals beyond raising :class:`pytest.UsageError` for
-invalid lane names. The hook layer in :mod:`pytest_lanes.hooks` wires
-them up to real pytest.
-"""
+"""``--lane=<name>`` parsing and per-item filtering."""
 
 from __future__ import annotations
 
@@ -41,14 +34,7 @@ def validate_lane_names(selected: tuple[str, ...], lane_config: LaneConfig) -> N
 def collection_args_for_lanes(
     selected: tuple[str, ...], lane_config: LaneConfig
 ) -> tuple[list[str], list[str]]:
-    """Return ``(positional_args, ignore_paths)`` for an in-process ``--lane=`` run.
-
-    Mirrors the argv that :func:`pytest_lanes.lanes.build_lane_commands`
-    would produce for a subprocess on the same lane, so pytest's collection
-    phase only imports the lane's own files. Without this, ``pytest --lane=X``
-    would let pytest discover every file under rootdir and fail on imports
-    from unrelated lanes that are not installed in the current environment.
-    """
+    """Return ``(positional_args, ignore_paths)`` for an in-process ``--lane=`` run."""
     positional: list[str] = []
     ignores: list[str] = []
     seen_ignores: set[str] = set()
@@ -81,13 +67,7 @@ def apply_lane_filter(
     selected_lanes: tuple[str, ...],
     marker_factory: Callable[[str], object],
 ) -> None:
-    """Mark each item with its lane's marker and skip items outside the selection.
-
-    ``marker_factory`` builds a marker object given a name; the plugin passes
-    ``getattr(pytest.mark, name)`` so tests can substitute a lightweight stub.
-    When ``selected_lanes`` is empty no items are skipped — every collected
-    item runs in its native lane.
-    """
+    """Mark each item with its lane's marker and skip items outside the selection."""
     if selected_lanes:
         validate_lane_names(selected_lanes, lane_config)
 
@@ -102,11 +82,7 @@ def apply_lane_filter(
         try:
             spec = lane_for_item(item, rootpath, lane_config)
         except LookupError:
-            # Without a --lane selection, marking is advisory: orchestration
-            # has stepped aside (-k, -m, targeted paths) and plain pytest may
-            # collect tests the lanes never claim. Crashing collection over
-            # those would punish filtering. Under a selection the error
-            # stands: classifiers and subprocess paths disagree.
+            # Advisory without a --lane selection; a real config error under one.
             if selected:
                 raise
             continue

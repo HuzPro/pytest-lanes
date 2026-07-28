@@ -1,10 +1,4 @@
-"""Process-level constants for lane orchestration.
-
-These are *not* lane definitions (those live in the host project's INI file
-and are loaded via :mod:`pytest_lanes.config`). They are runtime constants the
-plugin needs to communicate with child pytest subprocesses and pace its main
-loop.
-"""
+"""Process-level constants for lane orchestration."""
 
 from __future__ import annotations
 

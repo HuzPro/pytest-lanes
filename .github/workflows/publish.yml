@@ -1,4 +1,4 @@
-# Publishes to PyPI via Trusted Publishing (OIDC) — no API token is stored in this repo.
+# Publishes to PyPI via Trusted Publishing (OIDC); no API token is stored in this repo.
 #
 # One-time setup required on PyPI before the first tag push, under the project's
 # "Publishing" settings, add a trusted publisher:

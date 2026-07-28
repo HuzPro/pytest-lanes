@@ -1,9 +1,4 @@
-"""Behavioral tests for lane-assignment explanations (``--lanes-explain``).
-
-``explain_lane_for_item`` is the single classification code path: it returns
-not just the owning lane but the classifier rule that claimed the item, so
-what ``--lanes-explain`` prints can never drift from what actually runs.
-"""
+"""Behavioral tests for lane-assignment explanations (``--lanes-explain``)."""
 
 from __future__ import annotations
 
@@ -22,13 +17,13 @@ def test_class_base_name_match_is_explained_with_the_matching_base_name() -> Non
     class PostgresTestCase:
         pass
 
-    class TestActivityStore(PostgresTestCase):
+    class TestOrderStore(PostgresTestCase):
         pass
 
     item = _FakeItem(
-        path=_ROOT / "app" / "tests" / "test_activity_store.py",
-        nodeid="app/tests/test_activity_store.py::TestActivityStore::test_saves",
-        test_class=TestActivityStore,
+        path=_ROOT / "app" / "tests" / "test_order_store.py",
+        nodeid="app/tests/test_order_store.py::TestOrderStore::test_saves",
+        test_class=TestOrderStore,
     )
 
     assignment = explain_lane_for_item(item, _ROOT, _CONFIG)
@@ -40,28 +35,28 @@ def test_class_base_name_match_is_explained_with_the_matching_base_name() -> Non
 
 def test_exact_path_match_is_explained_with_the_path() -> None:
     item = _FakeItem(
-        path=_ROOT / "backend" / "postgres" / "tests" / "test_sensor_logger.py",
-        nodeid="backend/postgres/tests/test_sensor_logger.py::test_logs",
+        path=_ROOT / "services" / "postgres" / "tests" / "test_cache_sync.py",
+        nodeid="services/postgres/tests/test_cache_sync.py::test_logs",
     )
 
     assignment = explain_lane_for_item(item, _ROOT, _CONFIG)
 
-    assert assignment.lane.name == "timescale"
+    assert assignment.lane.name == "redis"
     assert assignment.rule_kind == "classifier_paths"
-    assert assignment.matched_value == "backend/postgres/tests/test_sensor_logger.py"
+    assert assignment.matched_value == "services/postgres/tests/test_cache_sync.py"
 
 
 def test_path_prefix_match_is_explained_with_the_configured_prefix() -> None:
     item = _FakeItem(
-        path=_ROOT / "backend" / "http_adapter" / "tests" / "test_routes.py",
-        nodeid="backend/http_adapter/tests/test_routes.py::test_get",
+        path=_ROOT / "services" / "api" / "tests" / "test_routes.py",
+        nodeid="services/api/tests/test_routes.py::test_get",
     )
 
     assignment = explain_lane_for_item(item, _ROOT, _CONFIG)
 
-    assert assignment.lane.name == "http_adapter"
+    assert assignment.lane.name == "api"
     assert assignment.rule_kind == "classifier_path_prefixes"
-    assert assignment.matched_value == "backend/http_adapter/tests/"
+    assert assignment.matched_value == "services/api/tests/"
 
 
 def test_path_suffix_match_is_explained_with_the_suffix() -> None:
@@ -102,8 +97,8 @@ def test_fallback_lane_is_explained_as_fallback_with_no_matched_value() -> None:
 
 def test_lane_for_item_and_explanation_always_agree() -> None:
     item = _FakeItem(
-        path=_ROOT / "backend" / "postgres" / "tests" / "test_activity_logger.py",
-        nodeid="backend/postgres/tests/test_activity_logger.py::test_logs",
+        path=_ROOT / "services" / "postgres" / "tests" / "test_order_logger.py",
+        nodeid="services/postgres/tests/test_order_logger.py::test_logs",
     )
 
     assert lane_for_item(item, _ROOT, _CONFIG) is (
