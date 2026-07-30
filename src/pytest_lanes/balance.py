@@ -246,11 +246,7 @@ def _whole_directories(
 def _paths_by_ancestor(
     pooled: tuple[tuple[str, float], ...],
 ) -> dict[str, set[str]]:
-    """Every pooled path indexed by each of its ancestor directories.
-
-    Built once per partition: scanning the whole pool per candidate directory is
-    quadratic, and both grow with the suite.
-    """
+    """Every pooled path indexed by each of its ancestor directories."""
     under: dict[str, set[str]] = {}
     for path, _ in pooled:
         ancestor = _parent_directory(path)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from pytest_lanes.invocation import (
+    has_custom_selection,
     has_targeted_paths,
     passthrough_args_for_lanes,
     wants_live_lane_output,
@@ -13,6 +14,22 @@ from pytest_lanes.invocation import (
 
 def test_split_lane_def_value_is_not_a_targeted_path() -> None:
     assert has_targeted_paths(("--lane-def", "db=tests/db", ".")) is False
+
+
+@pytest.mark.parametrize(
+    "argument",
+    ["-k", "-m", "-kcheckout", "-mslow", "--lane", "--lane=db", "--lf", "--ff"],
+)
+def test_selection_arguments_are_a_custom_selection(argument: str) -> None:
+    assert has_custom_selection((".", argument)) is True
+
+
+@pytest.mark.parametrize(
+    "argument",
+    ["--lanes-full", "--lanes-auto", "--lanes-suggest", "--lanes-no-shard"],
+)
+def test_lanes_own_flags_are_not_a_custom_selection(argument: str) -> None:
+    assert has_custom_selection((".", argument)) is False
 
 
 @pytest.mark.parametrize(

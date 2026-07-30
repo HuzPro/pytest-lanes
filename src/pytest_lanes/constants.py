@@ -23,11 +23,7 @@ _UNNAMED_LANE = "lane"
 
 
 def lane_filename_token(lane_name: str) -> str:
-    """Reduce a lane name to something safe to put in a filename.
-
-    The parent reads back files its children wrote, so every staged artifact for
-    one lane must derive its name from this single policy.
-    """
+    """Reduce a lane name to something safe to put in a filename."""
     token = _UNSAFE_IN_FILENAME.sub("_", lane_name).strip("_")
     return token or _UNNAMED_LANE
 

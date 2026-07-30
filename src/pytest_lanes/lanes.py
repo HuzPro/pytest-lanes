@@ -8,8 +8,6 @@ from pathlib import Path
 
 from pytest_lanes.config import LaneConfig, LaneSpec
 
-# Every test in one file shares that file's path, so a suite of thousands of items
-# resolves only as many distinct paths as it has test files.
 _RELATIVE_PATH_CACHE_SIZE = 8192
 
 

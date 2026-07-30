@@ -22,11 +22,7 @@ def is_test_filename(filename: str) -> bool:
 
 
 def contains_test_files(directory: Path) -> bool:
-    """Whether any test file lives anywhere under ``directory``.
-
-    One traversal that stops at the first hit: matching every pattern separately
-    walks the whole subtree again for each pattern that misses.
-    """
+    """Whether any test file lives anywhere under ``directory``."""
     for _, _, filenames in os.walk(directory):
         if any(is_test_filename(filename) for filename in filenames):
             return True

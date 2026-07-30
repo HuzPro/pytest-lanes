@@ -38,10 +38,7 @@ def is_positional_arg(arg: str) -> bool:
 
 def has_custom_selection(invocation_args_value: tuple[str, ...]) -> bool:
     return any(
-        arg in SELECTION_FLAGS
-        or arg == "--lane"
-        # "--lane=" keeps the "=" so --lanes-full and --lanes-auto do not match.
-        or arg.startswith(_SELECTION_PREFIXES)
+        arg in SELECTION_FLAGS or arg == "--lane" or arg.startswith(_SELECTION_PREFIXES)
         for arg in invocation_args_value
     )
 

@@ -9,9 +9,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Protocol, TypedDict
 
-# Importing rich costs ~200ms, over half this plugin's import time, and that price
-# would be paid by every pytest run in the environment. Only the Rich display
-# needs it, so it is imported when that display is built.
+# Imported lazily: rich is over half this plugin's import cost, paid by every pytest run.
 HAS_RICH = importlib.util.find_spec("rich") is not None
 
 
@@ -571,8 +569,6 @@ class RichLaneDisplay:
     def refresh(self) -> None:
         if self._live is None:
             return
-        # The scheduling loop polls far faster than Live renders; a table built
-        # between two renders is discarded work.
         now = self._clock()
         if now - self._last_table_built_at < 1.0 / _LIVE_TABLE_REFRESH_RATE:
             return
@@ -661,7 +657,7 @@ def _build_default_display(
     if HAS_RICH:
         try:
             return RichLaneDisplay(reporter, show_lane_stream=show_lane_stream)
-        except ModuleNotFoundError:  # pragma: no cover - a rich install with a gap
+        except ModuleNotFoundError:  # pragma: no cover
             pass
     return PlainLaneDisplay(reporter, show_lane_stream=show_lane_stream)
 

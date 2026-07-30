@@ -406,7 +406,6 @@ def pytest_collection_modifyitems(
 def _env_overrides_for_item(item: pytest.Item) -> tuple[tuple[str, str], ...]:
     if _lane_config is None or _rootpath is None:
         return ()
-    # Classifying costs a path walk per test; skip it unless a lane wants env vars.
     if not any(spec.subprocess_env_set for spec in _lane_config.lanes):
         return ()
 
