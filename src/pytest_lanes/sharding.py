@@ -11,6 +11,7 @@ from pytest_lanes.config import LaneConfig, LaneSpec
 from pytest_lanes.constants import CACHE_RELATIVE_PATH
 from pytest_lanes.durations import (
     LaneRecord,
+    contiguous_halves,
     json_dict_or_empty,
     total_seconds,
     write_json_file,
@@ -291,20 +292,3 @@ def _with_replacement(
         else:
             replaced.append(command)
     return tuple(replaced)
-
-
-def contiguous_halves(
-    files: tuple[tuple[str, float], ...],
-) -> tuple[tuple[tuple[str, float], ...], tuple[tuple[str, float], ...]]:
-    """Cut the file list at the point that best balances the two halves."""
-    total = total_seconds(files)
-    best_cut = 1
-    best_imbalance = float("inf")
-    running = 0.0
-    for index, (_, seconds) in enumerate(files[:-1], start=1):
-        running += seconds
-        imbalance = abs(running - (total - running))
-        if imbalance < best_imbalance:
-            best_imbalance = imbalance
-            best_cut = index
-    return files[:best_cut], files[best_cut:]

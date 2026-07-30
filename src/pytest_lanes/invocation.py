@@ -3,6 +3,21 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
+from typing import Protocol
+
+
+class SupportsInvocationParams(Protocol):
+    """The part of a pytest config that reports the argv it was invoked with."""
+
+    @property
+    def invocation_params(self) -> _InvocationParams: ...
+
+
+class _InvocationParams(Protocol):
+    @property
+    def args(self) -> Sequence[str]: ...
+
 
 SELECTION_FLAGS = frozenset(
     {
@@ -23,7 +38,7 @@ _SHORT_OPTION_CLUSTER = re.compile(r"^-[a-zA-Z]+$")
 _CAPTURE_DISABLING_SHORT_OPTION = "s"
 
 
-def invocation_args(config: object) -> tuple[str, ...]:
+def invocation_args(config: SupportsInvocationParams) -> tuple[str, ...]:
     invocation_params = getattr(config, "invocation_params", None)
     if invocation_params is None:
         return ()

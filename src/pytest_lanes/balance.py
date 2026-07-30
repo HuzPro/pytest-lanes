@@ -8,6 +8,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from pytest_lanes.durations import LaneRecord, total_seconds
+from pytest_lanes.ini_template import fallback_section, index_block, markers_block
 
 _MINIMUM_FILES_TO_BALANCE = 2
 # A directory heavier than the per-lane target is split at file granularity.
@@ -15,6 +16,12 @@ OVERSIZED_DIRECTORY_RATIO = 1.3
 # The catch-all's name; balanced lanes must never claim it.
 REST_LANE_NAME = "rest"
 _DEFAULT_LANE_NAME = "lane"
+_MARKER_ORIGIN = "balanced by pytest-lanes"
+_REST_NOTES = (
+    "# claims every test the lanes above do not - tests added since the",
+    "# durations were recorded run here instead of being silently skipped;",
+    "# tolerate_no_tests keeps an empty catch-all from failing the run",
+)
 
 
 @dataclass(frozen=True)
@@ -44,11 +51,15 @@ def format_balanced_suggestion(lanes: tuple[BalancedLane, ...]) -> str:
     if not lanes:
         return ""
 
-    names = [lane.name for lane in lanes]
-    lines = [*_header_lines(lanes), *_markers_block(names), *_index_block(names)]
+    scheduled = [lane.name for lane in lanes] + [REST_LANE_NAME]
+    lines = [
+        *_header_lines(lanes),
+        *markers_block(scheduled, _MARKER_ORIGIN),
+        *index_block(scheduled, scheduled),
+    ]
     for lane in lanes:
         lines.extend(_lane_section(lane))
-    lines.extend(_rest_section())
+    lines.extend(fallback_section(REST_LANE_NAME, _REST_NOTES))
     return "\n".join(lines)
 
 
@@ -71,23 +82,6 @@ def _header_lines(lanes: tuple[BalancedLane, ...]) -> list[str]:
         "# Review and adjust, then verify the partition with:",
         "#     pytest . --lanes-explain",
         "",
-    ]
-
-
-def _markers_block(names: list[str]) -> list[str]:
-    lines = ["[pytest]", "markers ="]
-    for name in [*names, REST_LANE_NAME]:
-        lines.append(f"    {name}: {name} lane (balanced by pytest-lanes)")
-    return lines
-
-
-def _index_block(names: list[str]) -> list[str]:
-    scheduled = " ".join([*names, REST_LANE_NAME])
-    return [
-        "",
-        "[pytest-lanes]",
-        f"lanes = {scheduled}",
-        f"subprocess_order_standard = {scheduled}",
     ]
 
 
@@ -125,20 +119,6 @@ def _files_outside_whole_directories(lane: BalancedLane) -> tuple[str, ...]:
             path.startswith(f"{directory}/") for directory in lane.whole_directories
         )
     )
-
-
-def _rest_section() -> list[str]:
-    return [
-        "",
-        f"[pytest-lanes:{REST_LANE_NAME}]",
-        "# claims every test the lanes above do not - tests added since the",
-        "# durations were recorded run here instead of being silently skipped;",
-        "# tolerate_no_tests keeps an empty catch-all from failing the run",
-        f"marker = {REST_LANE_NAME}",
-        "classifier_fallback = true",
-        "subprocess_ignore_other_lanes = true",
-        "tolerate_no_tests = true",
-    ]
 
 
 def _clamped_lane_count(requested: int, pooled: tuple[tuple[str, float], ...]) -> int:

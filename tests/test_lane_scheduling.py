@@ -143,6 +143,43 @@ def test_tolerant_lane_treats_no_tests_collected_exit_as_success() -> None:
     assert reporter.lane_results()[0]["exit_code"] == 0
 
 
+def test_run_exit_code_is_zero_when_every_lane_passed() -> None:
+    runs = [
+        executor._LaneRun(name="db", process=_FakeProcess(0), exit_code=0),
+        executor._LaneRun(name="other", process=_FakeProcess(0), exit_code=0),
+    ]
+
+    assert executor._run_exit_code(runs, expected_lane_count=2) == 0
+
+
+def test_run_exit_code_reports_the_worst_lane_failure() -> None:
+    runs = [
+        executor._LaneRun(name="db", process=_FakeProcess(0), exit_code=0),
+        executor._LaneRun(name="other", process=_FakeProcess(1), exit_code=1),
+    ]
+
+    assert executor._run_exit_code(runs, expected_lane_count=2) == 1
+
+
+def test_run_exit_code_fails_when_a_lane_never_reported_an_exit_code() -> None:
+    runs = [
+        executor._LaneRun(name="db", process=_FakeProcess(0), exit_code=0),
+        executor._LaneRun(name="stuck", process=_FakeProcess(0), exit_code=None),
+    ]
+
+    assert executor._run_exit_code(runs, expected_lane_count=2) != 0
+
+
+def test_run_exit_code_fails_when_a_planned_lane_never_launched() -> None:
+    runs = [executor._LaneRun(name="db", process=_FakeProcess(0), exit_code=0)]
+
+    assert executor._run_exit_code(runs, expected_lane_count=2) != 0
+
+
+def test_run_exit_code_is_zero_when_no_lanes_were_planned() -> None:
+    assert executor._run_exit_code([], expected_lane_count=0) == 0
+
+
 def test_intolerant_lane_keeps_no_tests_collected_as_a_failure() -> None:
     reporter = LaneProgressReporter(clock=lambda: 0.0)
     reporter.register_lanes(["db"])

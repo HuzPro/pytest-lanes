@@ -4,9 +4,44 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
-from pytest_lanes.durations import write_json_file
+from pytest_lanes.durations import (
+    file_seconds_from_json,
+    float_or_zero,
+    json_dict_or_empty,
+    write_json_file,
+)
+
+
+@dataclass(frozen=True)
+class ChildMeasurements:
+    """One lane child's self-measured timings, as carried in its sidecar file."""
+
+    total: float = 0.0
+    collect: float = 0.0
+    startup: float = 0.0
+    files: tuple[tuple[str, float], ...] = ()
+
+    @classmethod
+    def from_file(cls, path: Path) -> ChildMeasurements:
+        """Read a child's sidecar, yielding zeroed measurements when unreadable."""
+        raw = json_dict_or_empty(path)
+        return cls(
+            total=float_or_zero(raw.get("total")),
+            collect=float_or_zero(raw.get("collect")),
+            startup=float_or_zero(raw.get("startup")),
+            files=file_seconds_from_json(raw.get("files")),
+        )
+
+    def as_payload(self) -> dict[str, object]:
+        return {
+            "total": self.total,
+            "collect": self.collect,
+            "startup": self.startup,
+            "files": dict(self.files),
+        }
 
 
 class ChildRunRecorder:
@@ -41,17 +76,15 @@ class ChildRunRecorder:
         session_start = (
             self._session_started_at if self._session_started_at is not None else now
         )
-        payload = {
-            "total": now - session_start,
-            "collect": self._elapsed_between(
-                session_start, self._collection_finished_at
-            ),
-            "startup": self._elapsed_between(
+        measurements = ChildMeasurements(
+            total=now - session_start,
+            collect=self._elapsed_between(session_start, self._collection_finished_at),
+            startup=self._elapsed_between(
                 self._collection_finished_at, self._first_test_started_at
             ),
-            "files": self._file_seconds,
-        }
-        write_json_file(self._output_path, payload, indent=None)
+            files=tuple(self._file_seconds.items()),
+        )
+        write_json_file(self._output_path, measurements.as_payload(), indent=None)
 
     def _elapsed_between(self, start: float | None, end: float | None) -> float:
         if start is None or end is None:

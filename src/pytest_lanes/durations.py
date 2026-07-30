@@ -20,6 +20,23 @@ def total_seconds(files: FileDurations) -> float:
     return sum(seconds for _, seconds in files)
 
 
+def contiguous_halves(
+    files: tuple[tuple[str, float], ...],
+) -> tuple[tuple[tuple[str, float], ...], tuple[tuple[str, float], ...]]:
+    """Cut the file list at the point that best balances the two halves."""
+    total = total_seconds(files)
+    best_cut = 1
+    best_imbalance = float("inf")
+    running = 0.0
+    for index, (_, seconds) in enumerate(files[:-1], start=1):
+        running += seconds
+        imbalance = abs(running - (total - running))
+        if imbalance < best_imbalance:
+            best_imbalance = imbalance
+            best_cut = index
+    return files[:best_cut], files[best_cut:]
+
+
 def json_dict_or_empty(path: Path) -> dict[str, object]:
     """The JSON object at ``path``, or empty when absent or unreadable."""
     try:
@@ -33,6 +50,21 @@ def write_json_file(path: Path, payload: object, indent: int | None = 2) -> None
     """Write ``payload`` as JSON, creating parent directories."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=indent), encoding="utf-8")
+
+
+def float_or_zero(value: object) -> float:
+    return float(value) if isinstance(value, (int, float)) else 0.0
+
+
+def file_seconds_from_json(raw: object) -> tuple[tuple[str, float], ...]:
+    """Coerce a decoded ``{path: seconds}`` mapping to the recorded-file shape."""
+    if not isinstance(raw, dict):
+        return ()
+    return tuple(
+        (str(path), float(seconds))
+        for path, seconds in raw.items()
+        if isinstance(seconds, (int, float))
+    )
 
 
 @dataclass(frozen=True)
@@ -112,26 +144,12 @@ def _lane_record_from_json(value: object) -> LaneRecord | None:
     if not isinstance(total, (int, float)):
         return None
 
-    raw_files = value.get("files")
-    files = (
-        tuple(
-            (str(path), float(seconds))
-            for path, seconds in raw_files.items()
-            if isinstance(seconds, (int, float))
-        )
-        if isinstance(raw_files, dict)
-        else ()
-    )
     return LaneRecord(
         total=float(total),
-        startup=_float_or_zero(value.get("startup")),
-        collect=_float_or_zero(value.get("collect")),
-        files=files,
+        startup=float_or_zero(value.get("startup")),
+        collect=float_or_zero(value.get("collect")),
+        files=file_seconds_from_json(value.get("files")),
     )
-
-
-def _float_or_zero(value: object) -> float:
-    return float(value) if isinstance(value, (int, float)) else 0.0
 
 
 def duration_store_for_rootdir(rootpath: Path) -> JsonFileDurationStore:

@@ -10,7 +10,7 @@ import sys
 import tempfile
 import threading
 import time
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -24,19 +24,21 @@ from pytest_lanes.constants import (
     TEST_ORCHESTRATION_CHILD_ENV,
     env_flag_enabled,
 )
-from pytest_lanes.durations import (
-    DurationStore,
-    InMemoryDurationStore,
-    LaneRecord,
-    json_dict_or_empty,
-)
+from pytest_lanes.durations import DurationStore, InMemoryDurationStore, LaneRecord
 from pytest_lanes.lanes import LaneCommand
+from pytest_lanes.recording import ChildMeasurements
 from pytest_lanes.report_aggregation import (
     aggregate_lane_reports,
     prepare_lane_reports,
 )
-from pytest_lanes.reporter import LaneConsolePresenter, LaneProgressReporter
+from pytest_lanes.reporter import (
+    LanePresenterDisplay,
+    LaneProgressReporter,
+    build_lane_display,
+)
 from pytest_lanes.scheduler import LaneWorkQueue, ordering_policy_for
+
+UNFINISHED_LANE_EXIT_CODE = int(ExitCode.INTERNAL_ERROR)
 
 
 @dataclass
@@ -51,7 +53,7 @@ class _LaneRun:
 class _RunContext:
     lane_output_queue: queue.Queue[tuple[str, str]]
     reporter: LaneProgressReporter
-    presenter: LaneConsolePresenter
+    presenter: LanePresenterDisplay
     durations_dir: Path
 
 
@@ -78,7 +80,7 @@ def run_lane_commands(
     context = _RunContext(
         lane_output_queue=queue.Queue(),
         reporter=reporter,
-        presenter=LaneConsolePresenter(reporter, show_lane_stream=show_lane_output),
+        presenter=build_lane_display(reporter, show_lane_stream=show_lane_output),
         durations_dir=Path(tempfile.mkdtemp(prefix="pytest-lanes-durations-")),
     )
     work_queue = LaneWorkQueue(
@@ -111,8 +113,21 @@ def run_lane_commands(
     shutil.rmtree(reports_dir, ignore_errors=True)
     shutil.rmtree(context.durations_dir, ignore_errors=True)
 
-    exit_codes = [result["exit_code"] for result in reporter.lane_results()]
-    return max(exit_codes) if exit_codes else 0
+    return _run_exit_code(runs, expected_lane_count=len(commands))
+
+
+def _run_exit_code(runs: Sequence[_LaneRun], expected_lane_count: int) -> int:
+    """The worst lane outcome; a lane that never reported one has not passed."""
+    if expected_lane_count == 0:
+        return 0
+
+    codes = [
+        UNFINISHED_LANE_EXIT_CODE if run.exit_code is None else run.exit_code
+        for run in runs
+    ]
+    if len(codes) < expected_lane_count:
+        codes.append(UNFINISHED_LANE_EXIT_CODE)
+    return max(codes)
 
 
 def _record_run_durations(
@@ -123,21 +138,21 @@ def _record_run_durations(
 ) -> None:
     parents = dict(shard_parents or {})
     finished: dict[str, LaneRecord] = {}
-    shard_measurements: dict[str, list[dict]] = {}
+    shard_measurements: dict[str, list[ChildMeasurements]] = {}
 
     for result in reporter.lane_results():
         if result["duration"] <= 0:
             continue
-        measured = _read_child_measurements(durations_dir / f"{result['name']}.json")
+        measured = ChildMeasurements.from_file(durations_dir / f"{result['name']}.json")
         parent = parents.get(result["name"])
         if parent is not None:
             shard_measurements.setdefault(parent, []).append(measured)
             continue
         finished[result["name"]] = LaneRecord(
             total=result["duration"],
-            startup=float(measured.get("startup", 0.0)),
-            collect=float(measured.get("collect", 0.0)),
-            files=tuple(sorted(dict(measured.get("files", {})).items())),
+            startup=measured.startup,
+            collect=measured.collect,
+            files=tuple(sorted(measured.files)),
         )
 
     for parent, measurements in shard_measurements.items():
@@ -147,30 +162,19 @@ def _record_run_durations(
         store.record(finished)
 
 
-def _merged_parent_record(measurements: list[dict]) -> LaneRecord:
+def _merged_parent_record(measurements: list[ChildMeasurements]) -> LaneRecord:
     """Fold shard measurements into one whole-lane record."""
     files: dict[str, float] = {}
     for measured in measurements:
-        files.update(dict(measured.get("files", {})))
-    startup = max(
-        (float(measured.get("startup", 0.0)) for measured in measurements),
-        default=0.0,
-    )
-    collect = max(
-        (float(measured.get("collect", 0.0)) for measured in measurements),
-        default=0.0,
-    )
-    files_seconds = sum(files.values())
+        files.update(measured.files)
+    startup = max((measured.startup for measured in measurements), default=0.0)
+    collect = max((measured.collect for measured in measurements), default=0.0)
     return LaneRecord(
-        total=startup + collect + files_seconds,
+        total=startup + collect + sum(files.values()),
         startup=startup,
         collect=collect,
         files=tuple(sorted(files.items())),
     )
-
-
-def _read_child_measurements(path: Path) -> dict:
-    return json_dict_or_empty(path)
 
 
 def _run_scheduling_loop(
@@ -282,7 +286,7 @@ def stream_lane_output(
 def drain_lane_output_queue(
     lane_output_queue: queue.Queue[tuple[str, str]],
     reporter: LaneProgressReporter,
-    presenter: LaneConsolePresenter,
+    presenter: LanePresenterDisplay,
 ) -> None:
     while True:
         try:

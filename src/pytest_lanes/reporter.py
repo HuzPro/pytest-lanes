@@ -7,13 +7,18 @@ import re
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Any, Protocol, TypedDict
+from typing import TYPE_CHECKING, Protocol, TypedDict
+
+if TYPE_CHECKING:
+    from rich.console import Console
+    from rich.live import Live
+    from rich.table import Table
 
 # Imported lazily: rich is over half this plugin's import cost, paid by every pytest run.
 HAS_RICH = importlib.util.find_spec("rich") is not None
 
 
-def new_console() -> Any:
+def new_console() -> Console:
     """The rich console for the live display, imported on first use."""
     from rich.console import Console
 
@@ -50,6 +55,24 @@ class LaneResult(TypedDict):
     collected_count: int
     passed_count: int
     skipped_count: int
+
+
+@dataclass(frozen=True)
+class LaneRow:
+    """One lane's live state, in the shape the displays render."""
+
+    name: str
+    status: str
+    progress_percent: int
+    elapsed_seconds: float
+    collected: int
+    passed: int
+    failed: int
+    skipped: int
+
+    @property
+    def is_complete(self) -> bool:
+        return self.progress_percent >= PROGRESS_MAX
 
 
 @dataclass(frozen=True)
@@ -158,6 +181,38 @@ def _format_seconds(seconds: float | None) -> str:
     return f"{seconds:.2f}s"
 
 
+def _format_percent(percent: int) -> str:
+    return f"{float(percent):.2f}%"
+
+
+_STATUS_STYLES: Mapping[str, str] = {
+    "RUNNING": "bold yellow",
+    "PASS": "bold green",
+    "FAIL": "bold red",
+}
+# Per count column: the style when non-zero, and the style when zero.
+_COUNT_CELL_STYLES: Mapping[str, tuple[str, str]] = {
+    "collected": ("", "dim"),
+    "passed": ("green", "dim"),
+    "failed": ("bold red", "green"),
+    "skipped": ("yellow", "dim"),
+}
+
+
+def _styled(text: str, style: str) -> str:
+    return f"[{style}]{text}[/]" if style else text
+
+
+def _styled_count(count: int, styles: tuple[str, str]) -> str:
+    nonzero_style, zero_style = styles
+    return _styled(str(count), nonzero_style if count else zero_style)
+
+
+def _reports_progress(lane: LaneState) -> bool:
+    """Whether this lane has told us enough to extrapolate its own finish time."""
+    return lane.started_at is not None and lane.progress_percent > PROGRESS_MIN
+
+
 @dataclass
 class LaneState:
     name: str
@@ -184,6 +239,11 @@ class LaneProgressReporter:
         self._ordered_names: list[str] = []
         self._lanes: dict[str, LaneState] = {}
         self._expected_durations = dict(expected_durations or {})
+
+    @property
+    def clock(self) -> Callable[[], float]:
+        """The time source this reporter measures with, shared by its displays."""
+        return self._clock
 
     def register_lanes(
         self,
@@ -258,39 +318,6 @@ class LaneProgressReporter:
             return
         lane.duration = self._clock() - lane.started_at
 
-    def _estimate_from_progress(
-        self, running_lanes: list[LaneState], now: float
-    ) -> tuple[float, int]:
-        progress_based_remaining = 0.0
-        progress_based_count = 0
-        for lane in running_lanes:
-            if lane.started_at is None:
-                continue
-            if lane.progress_percent <= PROGRESS_MIN:
-                continue
-
-            elapsed = max(now - lane.started_at, 0.0)
-            estimated_total = elapsed * (
-                float(PROGRESS_MAX) / float(lane.progress_percent)
-            )
-            progress_based_remaining += max(estimated_total - elapsed, 0.0)
-            progress_based_count += 1
-        return progress_based_remaining, progress_based_count
-
-    def _estimate_from_average(
-        self, running_lanes: list[LaneState], now: float, average_duration: float
-    ) -> float:
-        remaining = 0.0
-        for lane in running_lanes:
-            if lane.progress_percent > PROGRESS_MIN and lane.started_at is not None:
-                continue
-            if lane.started_at is None:
-                remaining += average_duration
-                continue
-            elapsed = now - lane.started_at
-            remaining += max(average_duration - elapsed, 0.0)
-        return remaining
-
     def estimated_remaining_seconds(self) -> float | None:
         pending_expected = self._pending_lanes_expected_seconds()
         running_lanes = [
@@ -300,28 +327,56 @@ class LaneProgressReporter:
             return pending_expected
 
         now = self._clock()
-        progress_based_remaining, progress_based_count = self._estimate_from_progress(
-            running_lanes, now
+        measurable = [lane for lane in running_lanes if _reports_progress(lane)]
+        unmeasurable = [lane for lane in running_lanes if not _reports_progress(lane)]
+        measured_remaining = self._estimate_from_progress(measurable, now)
+        if not unmeasurable:
+            return measured_remaining + pending_expected
+
+        average_duration = self._completed_average_seconds()
+        if average_duration is None:
+            if measurable:
+                return measured_remaining + pending_expected
+            return pending_expected if pending_expected > 0 else None
+
+        return (
+            measured_remaining
+            + self._estimate_from_average(unmeasurable, now, average_duration)
+            + pending_expected
         )
 
-        if progress_based_count == len(running_lanes):
-            return progress_based_remaining + pending_expected
+    def _estimate_from_progress(self, lanes: list[LaneState], now: float) -> float:
+        """Extrapolate each lane's own reported percentage to a total."""
+        remaining = 0.0
+        for lane in lanes:
+            elapsed = max(now - (lane.started_at or 0.0), 0.0)
+            estimated_total = elapsed * (
+                float(PROGRESS_MAX) / float(lane.progress_percent)
+            )
+            remaining += max(estimated_total - elapsed, 0.0)
+        return remaining
 
-        completed_durations = [
+    def _estimate_from_average(
+        self, lanes: list[LaneState], now: float, average_duration: float
+    ) -> float:
+        """Fall back to the average completed lane for lanes with no progress yet."""
+        remaining = 0.0
+        for lane in lanes:
+            if lane.started_at is None:
+                remaining += average_duration
+                continue
+            remaining += max(average_duration - (now - lane.started_at), 0.0)
+        return remaining
+
+    def _completed_average_seconds(self) -> float | None:
+        durations = [
             lane.duration
             for lane in self._lanes.values()
             if lane.status in {LANE_STATUS_PASS, LANE_STATUS_FAIL}
         ]
-        if not completed_durations:
-            if progress_based_count > 0:
-                return progress_based_remaining + pending_expected
-            return pending_expected if pending_expected > 0 else None
-
-        average_duration = sum(completed_durations) / len(completed_durations)
-        remaining = progress_based_remaining + self._estimate_from_average(
-            running_lanes, now, average_duration
-        )
-        return remaining + pending_expected
+        if not durations:
+            return None
+        return sum(durations) / len(durations)
 
     def _pending_lanes_expected_seconds(self) -> float:
         return sum(
@@ -359,32 +414,31 @@ class LaneProgressReporter:
     def build_summary(self, wall_seconds: float) -> str:
         return format_orchestration_summary(self.lane_results(), wall_seconds)
 
-    def live_rows(self) -> list[dict[str, str]]:
+    def live_rows(self) -> list[LaneRow]:
         now = self._clock()
-        rows: list[dict[str, str]] = []
-        for lane_name in self._ordered_names:
-            lane = self._lanes[lane_name]
-            if lane.status in {LANE_STATUS_PASS, LANE_STATUS_FAIL}:
-                elapsed = lane.duration
-            elif lane.started_at is not None:
-                elapsed = now - lane.started_at
-            else:
-                elapsed = 0.0
+        return [
+            self._row_for(self._lanes[lane_name], now)
+            for lane_name in self._ordered_names
+        ]
 
-            rows.append(
-                {
-                    "name": lane_name,
-                    "status": lane.status.upper(),
-                    "progress": f"{float(lane.progress_percent):.2f}%",
-                    "elapsed": _format_seconds(elapsed),
-                    "collected": str(lane.collected_count),
-                    "passed": str(lane.passed_count),
-                    "failed": str(len(lane.failed_tests)),
-                    "skipped": str(lane.skipped_count),
-                }
-            )
+    def _row_for(self, lane: LaneState, now: float) -> LaneRow:
+        return LaneRow(
+            name=lane.name,
+            status=lane.status.upper(),
+            progress_percent=lane.progress_percent,
+            elapsed_seconds=self._elapsed_seconds_for(lane, now),
+            collected=lane.collected_count,
+            passed=lane.passed_count,
+            failed=len(lane.failed_tests),
+            skipped=lane.skipped_count,
+        )
 
-        return rows
+    def _elapsed_seconds_for(self, lane: LaneState, now: float) -> float:
+        if lane.status in {LANE_STATUS_PASS, LANE_STATUS_FAIL}:
+            return lane.duration
+        if lane.started_at is None:
+            return 0.0
+        return now - lane.started_at
 
 
 class LanePresenterDisplay(Protocol):
@@ -410,7 +464,7 @@ class PlainLaneDisplay:
     ) -> None:
         self._reporter = reporter
         self._show_lane_stream = show_lane_stream
-        self._clock = clock or reporter._clock
+        self._clock = clock or reporter.clock
         self._last_plain_print_at = 0.0
 
     def start(self) -> None:
@@ -451,10 +505,11 @@ class PlainLaneDisplay:
         for row in rows:
             print(
                 "- "
-                f"{row['name']}: {row['status']} | "
-                f"progress={row['progress']} | elapsed={row['elapsed']} | "
-                f"collected={row['collected']} | passed={row['passed']} | "
-                f"failed={row['failed']} | skipped={row['skipped']}"
+                f"{row.name}: {row.status} | "
+                f"progress={_format_percent(row.progress_percent)} | "
+                f"elapsed={_format_seconds(row.elapsed_seconds)} | "
+                f"collected={row.collected} | passed={row.passed} | "
+                f"failed={row.failed} | skipped={row.skipped}"
             )
 
 
@@ -464,9 +519,9 @@ class RichLaneDisplay:
     ) -> None:
         self._reporter = reporter
         self._show_lane_stream = show_lane_stream
-        self._live: Any | None = None
+        self._live: Live | None = None
         self._console = new_console()
-        self._clock = reporter._clock
+        self._clock = reporter.clock
         self._last_table_built_at = 0.0
 
     def start(self) -> None:
@@ -576,7 +631,7 @@ class RichLaneDisplay:
         self._last_table_built_at = now
         self._live.update(self._build_table())
 
-    def _create_table_schema(self, caption: str) -> Any:
+    def _create_table_schema(self, caption: str) -> Table:
         from rich import box
         from rich.table import Table
 
@@ -596,96 +651,41 @@ class RichLaneDisplay:
         table.add_column("Skipped")
         return table
 
-    def _format_row_cells(self, row: dict[str, str]) -> dict[str, str]:
-        status = row["status"]
-        if status == "RUNNING":
-            status = "[bold yellow]RUNNING[/]"
-        elif status == "PASS":
-            status = "[bold green]PASS[/]"
-        elif status == "FAIL":
-            status = "[bold red]FAIL[/]"
+    def _row_cells(self, row: LaneRow) -> tuple[str, ...]:
+        return (
+            row.name,
+            _styled(row.status, _STATUS_STYLES.get(row.status, "")),
+            self._progress_cell(row),
+            _format_seconds(row.elapsed_seconds),
+            *(
+                _styled_count(getattr(row, column), styles)
+                for column, styles in _COUNT_CELL_STYLES.items()
+            ),
+        )
 
-        progress = row["progress"]
-        if progress == "100.00%":
-            progress = "[bold green]100.00%[/]"
+    def _progress_cell(self, row: LaneRow) -> str:
+        text = _format_percent(row.progress_percent)
+        return _styled(text, "bold green") if row.is_complete else text
 
-        collected_count = int(row["collected"])
-        collected = str(collected_count) if collected_count > 0 else "[dim]0[/]"
-
-        passed_count = int(row["passed"])
-        passed = f"[green]{passed_count}[/]" if passed_count > 0 else "[dim]0[/]"
-
-        failed_count = int(row["failed"])
-        failed = "[green]0[/]" if failed_count == 0 else f"[bold red]{failed_count}[/]"
-
-        skipped_count = int(row["skipped"])
-        skipped = f"[yellow]{skipped_count}[/]" if skipped_count > 0 else "[dim]0[/]"
-
-        return {
-            "name": row["name"],
-            "status": status,
-            "progress": progress,
-            "elapsed": row["elapsed"],
-            "collected": collected,
-            "passed": passed,
-            "failed": failed,
-            "skipped": skipped,
-        }
-
-    def _build_table(self) -> object:
+    def _build_table(self) -> Table:
         eta = _format_seconds(self._reporter.estimated_remaining_seconds())
         table = self._create_table_schema(caption=f"eta {eta}")
         for row in self._reporter.live_rows():
-            cells = self._format_row_cells(row)
-            table.add_row(
-                cells["name"],
-                cells["status"],
-                cells["progress"],
-                cells["elapsed"],
-                cells["collected"],
-                cells["passed"],
-                cells["failed"],
-                cells["skipped"],
-            )
+            table.add_row(*self._row_cells(row))
         return table
 
 
-def _build_default_display(
+def build_lane_display(
     reporter: LaneProgressReporter,
-    show_lane_stream: bool,
+    show_lane_stream: bool = False,
 ) -> LanePresenterDisplay:
+    """The richest display this environment supports."""
     if HAS_RICH:
         try:
             return RichLaneDisplay(reporter, show_lane_stream=show_lane_stream)
         except ModuleNotFoundError:  # pragma: no cover
             pass
     return PlainLaneDisplay(reporter, show_lane_stream=show_lane_stream)
-
-
-class LaneConsolePresenter:
-    def __init__(
-        self,
-        reporter: LaneProgressReporter,
-        show_lane_stream: bool = False,
-        display_factory: Callable[[LaneProgressReporter, bool], LanePresenterDisplay]
-        | None = None,
-    ) -> None:
-        factory = _build_default_display if display_factory is None else display_factory
-        self._display = factory(reporter, show_lane_stream)
-
-    def start(self) -> None:
-        self._display.start()
-
-    def stop(self) -> None:
-        self._display.stop()
-
-    def print_summary(
-        self, reporter: LaneProgressReporter, wall_seconds: float
-    ) -> None:
-        self._display.print_summary(reporter, wall_seconds)
-
-    def emit_lane_line(self, lane_name: str, line: str) -> None:
-        self._display.emit_lane_line(lane_name, line)
 
     def refresh(self) -> None:
         self._display.refresh()

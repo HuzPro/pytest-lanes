@@ -2,15 +2,24 @@
 
 from __future__ import annotations
 
+from typing import Protocol
+
 from pytest_lanes.constants import is_lane_child
 from pytest_lanes.invocation import (
+    SupportsInvocationParams,
     has_custom_selection,
     has_targeted_paths,
     invocation_args,
 )
 
 
-def _option_enabled(config: object, option_name: str) -> bool:
+class LaneModeConfig(SupportsInvocationParams, Protocol):
+    """The part of a pytest config that mode selection reads."""
+
+    def getoption(self, name: str) -> object: ...
+
+
+def _option_enabled(config: LaneModeConfig, option_name: str) -> bool:
     getoption = getattr(config, "getoption", None)
     if getoption is None:
         return False
@@ -21,7 +30,7 @@ def _option_enabled(config: object, option_name: str) -> bool:
         return False
 
 
-def orchestration_mode(config: object) -> str | None:
+def orchestration_mode(config: LaneModeConfig) -> str | None:
     if is_lane_child():
         return None
 

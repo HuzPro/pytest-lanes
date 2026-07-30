@@ -5,10 +5,21 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+from typing import Protocol
 
 from pytest_lanes.config import LaneConfig, LaneSpec
 
 _RELATIVE_PATH_CACHE_SIZE = 8192
+
+
+class ClassifiableItem(Protocol):
+    """The part of a pytest item that lane classification reads."""
+
+    @property
+    def path(self) -> Path: ...
+
+    @property
+    def cls(self) -> type | None: ...
 
 
 @dataclass(frozen=True)
@@ -21,7 +32,7 @@ class LaneCommand:
     tolerate_no_tests: bool = False
 
 
-def relative_test_path(item: object, rootpath: Path) -> str:
+def relative_test_path(item: ClassifiableItem, rootpath: Path) -> str:
     return _relative_posix_path(str(item.path), str(rootpath))
 
 
@@ -43,13 +54,15 @@ class LaneAssignment:
     matched_value: str
 
 
-def lane_for_item(item: object, rootpath: Path, lane_config: LaneConfig) -> LaneSpec:
+def lane_for_item(
+    item: ClassifiableItem, rootpath: Path, lane_config: LaneConfig
+) -> LaneSpec:
     """Return the lane that owns this test item."""
     return explain_lane_for_item(item, rootpath, lane_config).lane
 
 
 def explain_lane_for_item(
-    item: object, rootpath: Path, lane_config: LaneConfig
+    item: ClassifiableItem, rootpath: Path, lane_config: LaneConfig
 ) -> LaneAssignment:
     """Return the lane that owns this test item and the rule that claimed it."""
     class_assignment = _class_base_name_assignment(item, lane_config)
@@ -74,7 +87,7 @@ def explain_lane_for_item(
 
 
 def _class_base_name_assignment(
-    item: object, lane_config: LaneConfig
+    item: ClassifiableItem, lane_config: LaneConfig
 ) -> LaneAssignment | None:
     test_class = getattr(item, "cls", None)
     if not isinstance(test_class, type):
