@@ -39,12 +39,7 @@ _CAPTURE_DISABLING_SHORT_OPTION = "s"
 
 
 def invocation_args(config: SupportsInvocationParams) -> tuple[str, ...]:
-    invocation_params = getattr(config, "invocation_params", None)
-    if invocation_params is None:
-        return ()
-
-    args = getattr(invocation_params, "args", ())
-    return tuple(str(arg) for arg in args)
+    return tuple(str(arg) for arg in config.invocation_params.args)
 
 
 def is_positional_arg(arg: str) -> bool:

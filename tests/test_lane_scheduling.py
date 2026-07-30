@@ -180,6 +180,25 @@ def test_run_exit_code_is_zero_when_no_lanes_were_planned() -> None:
     assert executor._run_exit_code([], expected_lane_count=0) == 0
 
 
+def test_a_lane_that_never_reported_is_summarised_as_failed() -> None:
+    # The exit code and the summary must not disagree about the same lane.
+    reporter = LaneProgressReporter(clock=lambda: 0.0)
+    reporter.register_lanes(["db", "stuck"])
+    reporter.mark_started("db")
+    reporter.mark_started("stuck")
+    reporter.mark_finished("db", exit_code=0)
+    runs = [executor._LaneRun(name="db", process=_FakeProcess(0), exit_code=0)]
+
+    executor._mark_unreported_lanes(reporter, runs, _commands("db", "stuck"))
+
+    outcomes = {
+        result["name"]: result["exit_code"] for result in reporter.lane_results()
+    }
+    assert outcomes["db"] == 0
+    assert outcomes["stuck"] != 0
+    assert "FAIL" in reporter.build_summary(wall_seconds=1.0)
+
+
 def test_intolerant_lane_keeps_no_tests_collected_as_a_failure() -> None:
     reporter = LaneProgressReporter(clock=lambda: 0.0)
     reporter.register_lanes(["db"])

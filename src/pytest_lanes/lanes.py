@@ -13,13 +13,14 @@ _RELATIVE_PATH_CACHE_SIZE = 8192
 
 
 class ClassifiableItem(Protocol):
-    """The part of a pytest item that lane classification reads."""
+    """The part of a pytest item that lane classification reads.
+
+    Only ``path`` is declared: ``cls`` exists on ``pytest.Function`` but not on
+    ``pytest.Item``, so classification probes for it instead of requiring it.
+    """
 
     @property
     def path(self) -> Path: ...
-
-    @property
-    def cls(self) -> type | None: ...
 
 
 @dataclass(frozen=True)

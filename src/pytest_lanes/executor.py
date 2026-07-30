@@ -11,7 +11,7 @@ import tempfile
 import threading
 import time
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from pytest import ExitCode
@@ -24,9 +24,13 @@ from pytest_lanes.constants import (
     TEST_ORCHESTRATION_CHILD_ENV,
     env_flag_enabled,
 )
-from pytest_lanes.durations import DurationStore, InMemoryDurationStore, LaneRecord
+from pytest_lanes.durations import (
+    DurationStore,
+    InMemoryDurationStore,
+    LaneRecord,
+    lane_record_from_file,
+)
 from pytest_lanes.lanes import LaneCommand
-from pytest_lanes.recording import ChildMeasurements
 from pytest_lanes.report_aggregation import (
     aggregate_lane_reports,
     prepare_lane_reports,
@@ -99,6 +103,7 @@ def run_lane_commands(
             reader.join(timeout=0.2)
         context.presenter.stop()
 
+    _mark_unreported_lanes(reporter, runs, commands)
     _print_lane_outputs(reporter, show_lane_output)
 
     aggregate_lane_reports(report_plan, [command.name for command in commands])
@@ -118,16 +123,25 @@ def run_lane_commands(
 
 def _run_exit_code(runs: Sequence[_LaneRun], expected_lane_count: int) -> int:
     """The worst lane outcome; a lane that never reported one has not passed."""
-    if expected_lane_count == 0:
-        return 0
-
     codes = [
         UNFINISHED_LANE_EXIT_CODE if run.exit_code is None else run.exit_code
         for run in runs
     ]
     if len(codes) < expected_lane_count:
         codes.append(UNFINISHED_LANE_EXIT_CODE)
-    return max(codes)
+    return max(codes, default=0)
+
+
+def _mark_unreported_lanes(
+    reporter: LaneProgressReporter,
+    runs: Sequence[_LaneRun],
+    commands: Sequence[LaneCommand],
+) -> None:
+    """Tell the reporter about lanes that never reported, so the summary agrees."""
+    reported = {run.name for run in runs if run.exit_code is not None}
+    for command in commands:
+        if command.name not in reported:
+            reporter.mark_unreported(command.name, UNFINISHED_LANE_EXIT_CODE)
 
 
 def _record_run_durations(
@@ -138,21 +152,19 @@ def _record_run_durations(
 ) -> None:
     parents = dict(shard_parents or {})
     finished: dict[str, LaneRecord] = {}
-    shard_measurements: dict[str, list[ChildMeasurements]] = {}
+    shard_measurements: dict[str, list[LaneRecord]] = {}
 
     for result in reporter.lane_results():
         if result["duration"] <= 0:
             continue
-        measured = ChildMeasurements.from_file(durations_dir / f"{result['name']}.json")
+        measured = lane_record_from_file(durations_dir / f"{result['name']}.json")
         parent = parents.get(result["name"])
         if parent is not None:
             shard_measurements.setdefault(parent, []).append(measured)
             continue
-        finished[result["name"]] = LaneRecord(
-            total=result["duration"],
-            startup=measured.startup,
-            collect=measured.collect,
-            files=tuple(sorted(measured.files)),
+        # The parent's wall time is authoritative over the child's self-report.
+        finished[result["name"]] = replace(
+            measured, total=result["duration"], files=tuple(sorted(measured.files))
         )
 
     for parent, measurements in shard_measurements.items():
@@ -162,7 +174,7 @@ def _record_run_durations(
         store.record(finished)
 
 
-def _merged_parent_record(measurements: list[ChildMeasurements]) -> LaneRecord:
+def _merged_parent_record(measurements: list[LaneRecord]) -> LaneRecord:
     """Fold shard measurements into one whole-lane record."""
     files: dict[str, float] = {}
     for measured in measurements:

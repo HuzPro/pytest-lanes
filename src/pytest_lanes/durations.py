@@ -81,6 +81,15 @@ class LaneRecord:
     def files_seconds(self) -> float:
         return total_seconds(self.files)
 
+    def as_payload(self) -> dict[str, object]:
+        """The JSON shape both the child sidecar and the store are written in."""
+        return {**asdict(self), "files": self.files_as_dict()}
+
+
+def lane_record_from_file(path: Path) -> LaneRecord:
+    """One lane's recorded measurements, zeroed when the file is absent."""
+    return _lane_record_from_json(json_dict_or_empty(path)) or LaneRecord(total=0.0)
+
 
 class DurationStore(Protocol):
     def recorded_durations(self) -> dict[str, float]: ...
@@ -126,10 +135,7 @@ class JsonFileDurationStore:
     def record(self, records: Mapping[str, LaneRecord]) -> None:
         merged = self.recorded_lane_records()
         merged.update(records)
-        payload = {
-            name: {**asdict(record), "files": record.files_as_dict()}
-            for name, record in merged.items()
-        }
+        payload = {name: record.as_payload() for name, record in merged.items()}
         write_json_file(self._path, payload)
 
 

@@ -20,13 +20,10 @@ class LaneModeConfig(SupportsInvocationParams, Protocol):
 
 
 def _option_enabled(config: LaneModeConfig, option_name: str) -> bool:
-    getoption = getattr(config, "getoption", None)
-    if getoption is None:
-        return False
-
     try:
-        return bool(getoption(option_name))
+        return bool(config.getoption(option_name))
     except (TypeError, ValueError):
+        # pytest raises for an option no plugin registered.
         return False
 
 

@@ -51,11 +51,12 @@ def format_balanced_suggestion(lanes: tuple[BalancedLane, ...]) -> str:
     if not lanes:
         return ""
 
-    scheduled = [lane.name for lane in lanes] + [REST_LANE_NAME]
+    # A balanced partition claims every recorded file, so every lane is scheduled.
+    declared = [lane.name for lane in lanes] + [REST_LANE_NAME]
     lines = [
         *_header_lines(lanes),
-        *markers_block(scheduled, _MARKER_ORIGIN),
-        *index_block(scheduled, scheduled),
+        *markers_block(declared, _MARKER_ORIGIN),
+        *index_block(declared, scheduled=declared),
     ]
     for lane in lanes:
         lines.extend(_lane_section(lane))

@@ -9,7 +9,6 @@ from pathlib import Path
 import pytest
 
 from pytest_lanes.adhoc import resolve_lane_config_or_none
-from pytest_lanes.balance import balanced_partition, format_balanced_suggestion
 from pytest_lanes.config import LaneConfig
 from pytest_lanes.constants import (
     CHILD_DURATIONS_OUT_ENV,
@@ -40,11 +39,6 @@ from pytest_lanes.sharding import (
     persist_first_shard,
     plan_shards,
     shard_plan_path_for_rootdir,
-)
-from pytest_lanes.suggest import (
-    format_lane_suggestion,
-    format_split_advice,
-    scan_project,
 )
 
 ENV_OVERRIDE_ATTR = "_pytest_lanes_env_overrides"
@@ -241,6 +235,14 @@ def pytest_cmdline_main(config: pytest.Config) -> int | None:
 
 
 def _print_suggestion(rootpath: Path) -> int:
+    # Only --lanes-suggest needs these; every other pytest run skips the import.
+    from pytest_lanes.balance import balanced_partition, format_balanced_suggestion
+    from pytest_lanes.suggest import (
+        format_lane_suggestion,
+        format_split_advice,
+        scan_project,
+    )
+
     records = duration_store_for_rootdir(rootpath).recorded_lane_records()
     balanced = balanced_partition(
         records, lane_count=min(detected_cpu_count(), MAX_SUGGESTED_LANES)
