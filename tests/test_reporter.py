@@ -439,7 +439,7 @@ def test_rich_display_print_summary_adds_blank_line_before_title(monkeypatch) ->
                 return
             printed.append(str(args[0]))
 
-    monkeypatch.setattr(lane_reporter, "Console", FakeConsole)
+    monkeypatch.setattr(lane_reporter, "new_console", FakeConsole)
 
     display = lane_reporter.RichLaneDisplay(reporter)
     display.print_summary(reporter, wall_seconds=1.0)
@@ -477,7 +477,7 @@ def test_rich_summary_prints_reproduce_hint_for_failed_lane(monkeypatch) -> None
         def print(self, *args: object, **kwargs: object) -> None:
             printed.append(str(args[0]) if args else "")
 
-    monkeypatch.setattr(lane_reporter, "Console", FakeConsole)
+    monkeypatch.setattr(lane_reporter, "new_console", FakeConsole)
 
     display = lane_reporter.RichLaneDisplay(reporter)
     display.print_summary(reporter, wall_seconds=1.0)

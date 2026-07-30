@@ -7,13 +7,12 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-from pytest_lanes.adhoc import (
-    FALLBACK_LANE_NAME,
-    _contains_test_files,
-    _has_root_level_test_files,
-    _is_lane_candidate,
-)
+from pytest_lanes.adhoc import FALLBACK_LANE_NAME
 from pytest_lanes.durations import LaneRecord
+from pytest_lanes.layout import (
+    has_root_level_test_files,
+    test_bearing_subdirectories,
+)
 from pytest_lanes.sharding import contiguous_halves
 
 _INFRASTRUCTURE_IMPORT_ROOTS = frozenset(
@@ -56,14 +55,11 @@ class ProjectScan:
 def scan_project(rootpath: Path) -> ProjectScan:
     directories = tuple(
         _scan_directory(directory)
-        for directory in sorted(rootpath.iterdir())
-        if directory.is_dir()
-        and _is_lane_candidate(directory)
-        and _contains_test_files(directory)
+        for directory in test_bearing_subdirectories(rootpath)
     )
     return ProjectScan(
         directories=directories,
-        has_root_level_tests=_has_root_level_test_files(rootpath),
+        has_root_level_tests=has_root_level_test_files(rootpath),
     )
 
 

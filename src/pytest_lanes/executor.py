@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import queue
 import shutil
@@ -19,11 +18,18 @@ from pytest import ExitCode
 
 from pytest_lanes.constants import (
     CHILD_DURATIONS_OUT_ENV,
+    ENV_ENABLED,
     LANE_POLL_INTERVAL_SECONDS,
     SHOW_LANE_OUTPUT_ENV,
     TEST_ORCHESTRATION_CHILD_ENV,
+    env_flag_enabled,
 )
-from pytest_lanes.durations import DurationStore, InMemoryDurationStore, LaneRecord
+from pytest_lanes.durations import (
+    DurationStore,
+    InMemoryDurationStore,
+    LaneRecord,
+    json_dict_or_empty,
+)
 from pytest_lanes.lanes import LaneCommand
 from pytest_lanes.report_aggregation import (
     aggregate_lane_reports,
@@ -59,7 +65,7 @@ def run_lane_commands(
 ) -> int:
     start_wall = time.perf_counter()
     # The env var predates the flag; CI jobs use it without changing the command.
-    show_lane_output = show_lane_output or os.environ.get(SHOW_LANE_OUTPUT_ENV) == "1"
+    show_lane_output = show_lane_output or env_flag_enabled(SHOW_LANE_OUTPUT_ENV)
     reports_dir = Path(tempfile.mkdtemp(prefix="pytest-lanes-reports-"))
     commands, report_plan = prepare_lane_reports(commands, staging_dir=reports_dir)
     store = duration_store if duration_store is not None else InMemoryDurationStore()
@@ -94,7 +100,6 @@ def run_lane_commands(
     _print_lane_outputs(reporter, show_lane_output)
 
     aggregate_lane_reports(report_plan, [command.name for command in commands])
-    shutil.rmtree(reports_dir, ignore_errors=True)
 
     wall_seconds = time.perf_counter() - start_wall
     context.presenter.print_summary(reporter, wall_seconds=wall_seconds)
@@ -102,6 +107,8 @@ def run_lane_commands(
     _record_run_durations(
         reporter, store, context.durations_dir, shard_parents=shard_parents
     )
+    # Deleting a large coverage/html staging tree must not delay the summary.
+    shutil.rmtree(reports_dir, ignore_errors=True)
     shutil.rmtree(context.durations_dir, ignore_errors=True)
 
     exit_codes = [result["exit_code"] for result in reporter.lane_results()]
@@ -163,11 +170,7 @@ def _merged_parent_record(measurements: list[dict]) -> LaneRecord:
 
 
 def _read_child_measurements(path: Path) -> dict:
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    return raw if isinstance(raw, dict) else {}
+    return json_dict_or_empty(path)
 
 
 def _run_scheduling_loop(
@@ -238,7 +241,7 @@ def _spawn_lane_subprocess(
     command: LaneCommand, durations_dir: Path
 ) -> subprocess.Popen[str]:
     env = os.environ.copy()
-    env[TEST_ORCHESTRATION_CHILD_ENV] = "1"
+    env[TEST_ORCHESTRATION_CHILD_ENV] = ENV_ENABLED
     env[CHILD_DURATIONS_OUT_ENV] = str(durations_dir / f"{command.name}.json")
     for key, value in command.env_set:
         env[key] = value

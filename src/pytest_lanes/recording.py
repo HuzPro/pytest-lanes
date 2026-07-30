@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import json
 import time
 from collections.abc import Callable
 from pathlib import Path
+
+from pytest_lanes.durations import write_json_file
 
 
 class ChildRunRecorder:
@@ -50,8 +51,7 @@ class ChildRunRecorder:
             ),
             "files": self._file_seconds,
         }
-        self._output_path.parent.mkdir(parents=True, exist_ok=True)
-        self._output_path.write_text(json.dumps(payload), encoding="utf-8")
+        write_json_file(self._output_path, payload, indent=None)
 
     def _elapsed_between(self, start: float | None, end: float | None) -> float:
         if start is None or end is None:

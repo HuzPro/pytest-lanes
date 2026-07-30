@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 from pytest_lanes.config import LaneConfig, LaneSpec
+
+# Every test in one file shares that file's path, so a suite of thousands of items
+# resolves only as many distinct paths as it has test files.
+_RELATIVE_PATH_CACHE_SIZE = 8192
 
 
 @dataclass(frozen=True)
@@ -19,9 +24,14 @@ class LaneCommand:
 
 
 def relative_test_path(item: object, rootpath: Path) -> str:
-    item_path = Path(str(item.path))
+    return _relative_posix_path(str(item.path), str(rootpath))
+
+
+@lru_cache(maxsize=_RELATIVE_PATH_CACHE_SIZE)
+def _relative_posix_path(item_path_value: str, rootpath_value: str) -> str:
+    item_path = Path(item_path_value)
     try:
-        return item_path.relative_to(rootpath).as_posix()
+        return item_path.relative_to(Path(rootpath_value)).as_posix()
     except ValueError:
         return item_path.as_posix()
 
@@ -149,20 +159,14 @@ def build_lane_commands(
 
 
 def other_lane_ignores(excluded_spec: LaneSpec, lane_config: LaneConfig) -> list[str]:
-    seen: set[str] = set()
-    ordered: list[str] = []
-    for spec in lane_config.lanes:
-        if spec.name == excluded_spec.name:
-            continue
-        for path in (*spec.subprocess_paths, *spec.classifier_paths):
-            if path in seen:
-                continue
-            seen.add(path)
-            ordered.append(path)
-        for prefix in spec.classifier_path_prefixes:
-            normalized = prefix.rstrip("/")
-            if normalized in seen:
-                continue
-            seen.add(normalized)
-            ordered.append(normalized)
-    return ordered
+    paths = [
+        path
+        for spec in lane_config.lanes
+        if spec.name != excluded_spec.name
+        for path in (
+            *spec.subprocess_paths,
+            *spec.classifier_paths,
+            *(prefix.rstrip("/") for prefix in spec.classifier_path_prefixes),
+        )
+    ]
+    return list(dict.fromkeys(paths))

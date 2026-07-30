@@ -3,13 +3,36 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Protocol
 
-_CACHE_RELATIVE_PATH = Path(".pytest_cache") / "v" / "pytest-lanes"
+from pytest_lanes.constants import CACHE_RELATIVE_PATH
+
 _DURATIONS_FILENAME = "lane_durations.json"
+
+FileDurations = Iterable[tuple[str, float]]
+
+
+def total_seconds(files: FileDurations) -> float:
+    """The summed duration of a ``(path, seconds)`` collection."""
+    return sum(seconds for _, seconds in files)
+
+
+def json_dict_or_empty(path: Path) -> dict[str, object]:
+    """The JSON object at ``path``, or empty when absent or unreadable."""
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return raw if isinstance(raw, dict) else {}
+
+
+def write_json_file(path: Path, payload: object, indent: int | None = 2) -> None:
+    """Write ``payload`` as JSON, creating parent directories."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=indent), encoding="utf-8")
 
 
 @dataclass(frozen=True)
@@ -21,6 +44,10 @@ class LaneRecord:
 
     def files_as_dict(self) -> dict[str, float]:
         return dict(self.files)
+
+    @property
+    def files_seconds(self) -> float:
+        return total_seconds(self.files)
 
 
 class DurationStore(Protocol):
@@ -57,15 +84,8 @@ class JsonFileDurationStore:
         }
 
     def recorded_lane_records(self) -> dict[str, LaneRecord]:
-        try:
-            raw = json.loads(self._path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return {}
-        if not isinstance(raw, dict):
-            return {}
-
         records: dict[str, LaneRecord] = {}
-        for name, value in raw.items():
+        for name, value in json_dict_or_empty(self._path).items():
             record = _lane_record_from_json(value)
             if record is not None:
                 records[str(name)] = record
@@ -78,8 +98,7 @@ class JsonFileDurationStore:
             name: {**asdict(record), "files": record.files_as_dict()}
             for name, record in merged.items()
         }
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        write_json_file(self._path, payload)
 
 
 def _lane_record_from_json(value: object) -> LaneRecord | None:
@@ -116,4 +135,4 @@ def _float_or_zero(value: object) -> float:
 
 
 def duration_store_for_rootdir(rootpath: Path) -> JsonFileDurationStore:
-    return JsonFileDurationStore(rootpath / _CACHE_RELATIVE_PATH / _DURATIONS_FILENAME)
+    return JsonFileDurationStore(rootpath / CACHE_RELATIVE_PATH / _DURATIONS_FILENAME)

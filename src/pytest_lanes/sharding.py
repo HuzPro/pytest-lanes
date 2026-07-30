@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 import heapq
-import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 from pytest_lanes.config import LaneConfig, LaneSpec
-from pytest_lanes.durations import LaneRecord
+from pytest_lanes.constants import CACHE_RELATIVE_PATH
+from pytest_lanes.durations import (
+    LaneRecord,
+    json_dict_or_empty,
+    total_seconds,
+    write_json_file,
+)
 from pytest_lanes.lanes import LaneCommand, build_lane_commands, other_lane_ignores
 
 SHARD_REBALANCE_IMBALANCE_RATIO = 0.20
@@ -17,25 +22,19 @@ _SHARD_PLAN_FILENAME = "shard_plan.json"
 
 
 def shard_plan_path_for_rootdir(rootpath: Path) -> Path:
-    return rootpath / ".pytest_cache" / "v" / "pytest-lanes" / _SHARD_PLAN_FILENAME
+    return rootpath / CACHE_RELATIVE_PATH / _SHARD_PLAN_FILENAME
 
 
 def persist_first_shard(
     path: Path, lane_name: str, first_shard_files: tuple[str, ...]
 ) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
     payload = {"lane": lane_name, "first_shard_files": list(first_shard_files)}
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    write_json_file(path, payload)
 
 
 def load_persisted_plan(path: Path) -> tuple[str, tuple[str, ...]] | None:
     """Return ``(lane_name, first_shard_files)`` or ``None``."""
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    if not isinstance(raw, dict):
-        return None
+    raw = json_dict_or_empty(path)
     lane = raw.get("lane")
     files = raw.get("first_shard_files")
     if not isinstance(lane, str) or not isinstance(files, list):
@@ -219,8 +218,8 @@ def _choose_cut(
     if not kept_first or not kept_second:
         return fresh_first, fresh_second, _recut_note(fresh_first)
 
-    first_seconds = sum(seconds for _, seconds in kept_first)
-    second_seconds = sum(seconds for _, seconds in kept_second)
+    first_seconds = total_seconds(kept_first)
+    second_seconds = total_seconds(kept_second)
     imbalance = abs(first_seconds - second_seconds) / max(first_seconds, second_seconds)
     if imbalance <= SHARD_REBALANCE_IMBALANCE_RATIO:
         return kept_first, kept_second, ""
@@ -242,13 +241,11 @@ def _projected_shard_seconds(
     second_half: tuple[tuple[str, float], ...],
 ) -> tuple[float, float]:
     """Each shard re-pays measured startup + collect."""
-    files_seconds = sum(seconds for _, seconds in record.files)
-    residual = max(record.total - record.startup - record.collect - files_seconds, 0.0)
-    fixed = record.startup + record.collect + residual / 2
-    return (
-        fixed + sum(seconds for _, seconds in first_half),
-        fixed + sum(seconds for _, seconds in second_half),
+    residual = max(
+        record.total - record.startup - record.collect - record.files_seconds, 0.0
     )
+    fixed = record.startup + record.collect + residual / 2
+    return (fixed + total_seconds(first_half), fixed + total_seconds(second_half))
 
 
 def _shard_commands(
@@ -300,7 +297,7 @@ def contiguous_halves(
     files: tuple[tuple[str, float], ...],
 ) -> tuple[tuple[tuple[str, float], ...], tuple[tuple[str, float], ...]]:
     """Cut the file list at the point that best balances the two halves."""
-    total = sum(seconds for _, seconds in files)
+    total = total_seconds(files)
     best_cut = 1
     best_imbalance = float("inf")
     running = 0.0

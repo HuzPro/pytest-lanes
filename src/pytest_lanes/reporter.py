@@ -2,21 +2,24 @@
 
 from __future__ import annotations
 
+import importlib.util
 import re
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Protocol, TypedDict
 
-try:
-    from rich import box
-    from rich.console import Console
-    from rich.live import Live
-    from rich.table import Table
+# Importing rich costs ~200ms, over half this plugin's import time, and that price
+# would be paid by every pytest run in the environment. Only the Rich display
+# needs it, so it is imported when that display is built.
+HAS_RICH = importlib.util.find_spec("rich") is not None
 
-    HAS_RICH = True
-except ModuleNotFoundError:  # pragma: no cover - covered when rich is installed
-    HAS_RICH = False
+
+def new_console() -> Any:
+    """The rich console for the live display, imported on first use."""
+    from rich.console import Console
+
+    return Console()
 
 
 _ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-9;]*m")
@@ -33,7 +36,6 @@ LANE_STATUS_FAIL = "fail"
 
 PROGRESS_MIN = 0
 PROGRESS_MAX = 100
-PROGRESS_COMPLETE = 100
 
 _FALLBACK_REFRESH_THROTTLE_SECONDS = 1.0
 _LIVE_TABLE_REFRESH_RATE = 6
@@ -52,7 +54,8 @@ class LaneResult(TypedDict):
     skipped_count: int
 
 
-class SummaryMetrics(TypedDict):
+@dataclass(frozen=True)
+class SummaryMetrics:
     sum_lane_seconds: float
     parallelism_ratio: float
     max_lane_name_width: int
@@ -71,11 +74,11 @@ def _compute_summary_metrics(
     max_lane_name_width = max(
         (len(result["name"]) for result in lane_results), default=0
     )
-    return {
-        "sum_lane_seconds": sum_lane_seconds,
-        "parallelism_ratio": parallelism_ratio,
-        "max_lane_name_width": max_lane_name_width,
-    }
+    return SummaryMetrics(
+        sum_lane_seconds=sum_lane_seconds,
+        parallelism_ratio=parallelism_ratio,
+        max_lane_name_width=max_lane_name_width,
+    )
 
 
 def _collect_failed_test_lines(lane_results: list[LaneResult]) -> list[str]:
@@ -117,13 +120,10 @@ def format_orchestration_summary(
     wall_seconds: float,
 ) -> str:
     metrics = _compute_summary_metrics(lane_results, wall_seconds)
-    sum_lane_seconds = metrics["sum_lane_seconds"]
-    parallelism_ratio = metrics["parallelism_ratio"]
-    max_lane_name_width = metrics["max_lane_name_width"]
 
     lines = [SUMMARY_TITLE]
     for result in lane_results:
-        lane_name = result["name"].ljust(max_lane_name_width)
+        lane_name = result["name"].ljust(metrics.max_lane_name_width)
         status = "PASS" if result["exit_code"] == 0 else "FAIL"
         lines.append(f"> {lane_name} : {status} ({result['duration']:.2f}s)")
         if result["exit_code"] != 0:
@@ -131,14 +131,14 @@ def format_orchestration_summary(
             lines.append(f"  reproduce: {first_line}")
             lines.extend(f"  or: {line}" for line in rest)
 
-    lines.append(f"Parallelism ratio: {parallelism_ratio:.2f}x")
+    lines.append(f"Parallelism ratio: {metrics.parallelism_ratio:.2f}x")
 
     failed_test_lines = _collect_failed_test_lines(lane_results)
     if failed_test_lines:
         lines.append("Failed tests")
         lines.extend(failed_test_lines)
 
-    lines.append(f"Sum time without parallelization: {sum_lane_seconds:.2f}s")
+    lines.append(f"Sum time without parallelization: {metrics.sum_lane_seconds:.2f}s")
     lines.append(f"Total time taken: {wall_seconds:.2f}s")
 
     total_collected, total_passed, total_failed, total_skipped = (
@@ -254,7 +254,7 @@ class LaneProgressReporter:
         lane = self._lanes[lane_name]
         lane.exit_code = exit_code
         lane.status = LANE_STATUS_PASS if exit_code == 0 else LANE_STATUS_FAIL
-        lane.progress_percent = PROGRESS_COMPLETE
+        lane.progress_percent = PROGRESS_MAX
         if lane.started_at is None:
             lane.duration = 0.0
             return
@@ -373,16 +373,10 @@ class LaneProgressReporter:
             else:
                 elapsed = 0.0
 
-            if lane.status == LANE_STATUS_PASS:
-                status = "PASS"
-            elif lane.status == LANE_STATUS_FAIL:
-                status = "FAIL"
-            else:
-                status = lane.status.upper()
             rows.append(
                 {
                     "name": lane_name,
-                    "status": status,
+                    "status": lane.status.upper(),
                     "progress": f"{float(lane.progress_percent):.2f}%",
                     "elapsed": _format_seconds(elapsed),
                     "collected": str(lane.collected_count),
@@ -473,9 +467,13 @@ class RichLaneDisplay:
         self._reporter = reporter
         self._show_lane_stream = show_lane_stream
         self._live: Any | None = None
-        self._console = Console()
+        self._console = new_console()
+        self._clock = reporter._clock
+        self._last_table_built_at = 0.0
 
     def start(self) -> None:
+        from rich.live import Live
+
         self._live = Live(
             self._build_table(),
             console=self._console,
@@ -544,20 +542,17 @@ class RichLaneDisplay:
     ) -> None:
         lane_results = reporter.lane_results()
         metrics = _compute_summary_metrics(lane_results, wall_seconds)
-        sum_lane_seconds = metrics["sum_lane_seconds"]
-        parallelism_ratio = metrics["parallelism_ratio"]
-        max_lane_name_width = metrics["max_lane_name_width"]
 
         self._console.print("")
         self._console.print(f"[bold cyan]{SUMMARY_TITLE}[/]")
-        self._print_lane_rows(lane_results, max_lane_name_width)
+        self._print_lane_rows(lane_results, metrics.max_lane_name_width)
         self._console.print(
-            f"[blue]Parallelism ratio:[/] [bold white]{parallelism_ratio:.2f}x[/]"
+            f"[blue]Parallelism ratio:[/] [bold white]{metrics.parallelism_ratio:.2f}x[/]"
         )
 
         failed_lines = _collect_failed_test_lines(lane_results)
         self._print_failed_tests_section(failed_lines)
-        self._print_totals_section(lane_results, sum_lane_seconds, wall_seconds)
+        self._print_totals_section(lane_results, metrics.sum_lane_seconds, wall_seconds)
 
     def emit_lane_line(self, lane_name: str, line: str) -> None:
         if not self._show_lane_stream:
@@ -576,10 +571,19 @@ class RichLaneDisplay:
     def refresh(self) -> None:
         if self._live is None:
             return
+        # The scheduling loop polls far faster than Live renders; a table built
+        # between two renders is discarded work.
+        now = self._clock()
+        if now - self._last_table_built_at < 1.0 / _LIVE_TABLE_REFRESH_RATE:
+            return
 
+        self._last_table_built_at = now
         self._live.update(self._build_table())
 
-    def _create_table_schema(self, caption: str) -> Table:
+    def _create_table_schema(self, caption: str) -> Any:
+        from rich import box
+        from rich.table import Table
+
         table = Table(
             title="[bold cyan]Lanes[/]",
             caption=caption,
@@ -655,7 +659,10 @@ def _build_default_display(
     show_lane_stream: bool,
 ) -> LanePresenterDisplay:
     if HAS_RICH:
-        return RichLaneDisplay(reporter, show_lane_stream=show_lane_stream)
+        try:
+            return RichLaneDisplay(reporter, show_lane_stream=show_lane_stream)
+        except ModuleNotFoundError:  # pragma: no cover - a rich install with a gap
+            pass
     return PlainLaneDisplay(reporter, show_lane_stream=show_lane_stream)
 
 

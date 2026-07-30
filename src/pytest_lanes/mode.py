@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import os
-
-from pytest_lanes.constants import TEST_ORCHESTRATION_CHILD_ENV
+from pytest_lanes.constants import is_lane_child
 from pytest_lanes.invocation import (
     has_custom_selection,
     has_targeted_paths,
@@ -24,7 +22,7 @@ def _option_enabled(config: object, option_name: str) -> bool:
 
 
 def orchestration_mode(config: object) -> str | None:
-    if os.environ.get(TEST_ORCHESTRATION_CHILD_ENV) == "1":
+    if is_lane_child():
         return None
 
     invocation_args_value = invocation_args(config)

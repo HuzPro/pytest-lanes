@@ -37,13 +37,6 @@ def collection_args_for_lanes(
     """Return ``(positional_args, ignore_paths)`` for an in-process ``--lane=`` run."""
     positional: list[str] = []
     ignores: list[str] = []
-    seen_ignores: set[str] = set()
-
-    def _record_ignore(path: str) -> None:
-        if path in seen_ignores:
-            return
-        seen_ignores.add(path)
-        ignores.append(path)
 
     for name in selected:
         spec = lane_config.lane_by_name(name)
@@ -51,13 +44,11 @@ def collection_args_for_lanes(
             continue
         positional.extend(spec.subprocess_paths)
         positional.extend(spec.subprocess_nodeids)
-        for ignore_path in spec.subprocess_ignore:
-            _record_ignore(ignore_path)
+        ignores.extend(spec.subprocess_ignore)
         if spec.subprocess_ignore_other_lanes:
-            for ignore_path in other_lane_ignores(spec, lane_config):
-                _record_ignore(ignore_path)
+            ignores.extend(other_lane_ignores(spec, lane_config))
 
-    return positional, ignores
+    return positional, list(dict.fromkeys(ignores))
 
 
 def apply_lane_filter(

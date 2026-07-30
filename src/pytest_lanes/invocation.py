@@ -15,6 +15,8 @@ SELECTION_FLAGS = frozenset(
     }
 )
 
+_SELECTION_PREFIXES = ("-k", "-m", "--lane=")
+
 # Uncaptured output streams live instead of folding into the summary.
 _CAPTURE_DISABLING_ARGS = frozenset({"-s", "--capture=no", "--capture"})
 _SHORT_OPTION_CLUSTER = re.compile(r"^-[a-zA-Z]+$")
@@ -35,17 +37,13 @@ def is_positional_arg(arg: str) -> bool:
 
 
 def has_custom_selection(invocation_args_value: tuple[str, ...]) -> bool:
-    for arg in invocation_args_value:
-        if arg in SELECTION_FLAGS:
-            return True
-        if arg.startswith("-k") and arg != "-k":
-            return True
-        if arg.startswith("-m") and arg != "-m":
-            return True
-        if arg == "--lane" or arg.startswith("--lane="):
-            return True
-
-    return False
+    return any(
+        arg in SELECTION_FLAGS
+        or arg == "--lane"
+        # "--lane=" keeps the "=" so --lanes-full and --lanes-auto do not match.
+        or arg.startswith(_SELECTION_PREFIXES)
+        for arg in invocation_args_value
+    )
 
 
 def wants_live_lane_output(invocation_args_value: tuple[str, ...]) -> bool:

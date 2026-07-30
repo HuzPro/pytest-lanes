@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+
+from pytest_lanes.constants import lane_filename_token
 
 COVERAGE_DATA_ENV = "COVERAGE_FILE"
 
@@ -18,8 +19,6 @@ _DATA_FILE_PREFIX = ".coverage."
 _DESTINATION_SEPARATOR = ":"
 _OUTPUT_FILE_FLAG = "-o"
 _OUTPUT_DIRECTORY_FLAG = "-d"
-_UNSAFE_IN_FILENAME = re.compile(r"[^A-Za-z0-9_-]+")
-_UNNAMED_LANE = "lane"
 
 
 def is_coverage_requested(args: tuple[str, ...]) -> bool:
@@ -28,7 +27,7 @@ def is_coverage_requested(args: tuple[str, ...]) -> bool:
 
 def lane_coverage_env(lane_name: str, data_dir: Path) -> tuple[tuple[str, str], ...]:
     """The environment override that isolates one lane's measurements."""
-    data_file = data_dir / f"{_DATA_FILE_PREFIX}{_filename_token(lane_name)}"
+    data_file = data_dir / f"{_DATA_FILE_PREFIX}{lane_filename_token(lane_name)}"
     return ((COVERAGE_DATA_ENV, str(data_file)),)
 
 
@@ -104,12 +103,6 @@ def _separate_token_request(args: tuple[str, ...], flag_index: int) -> _ReportRe
     if value_index >= len(args):
         return _ReportRequest((flag_index,), "")
     return _ReportRequest((flag_index, value_index), args[value_index])
-
-
-def _filename_token(lane_name: str) -> str:
-    """Reduce a lane name to something safe to put in a filename."""
-    token = _UNSAFE_IN_FILENAME.sub("_", lane_name).strip("_")
-    return token or _UNNAMED_LANE
 
 
 def _is_coverage_option(arg: str) -> bool:
