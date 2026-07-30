@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import queue
 import shutil
@@ -11,26 +10,39 @@ import sys
 import tempfile
 import threading
 import time
-from collections.abc import Mapping
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from pytest import ExitCode
 
 from pytest_lanes.constants import (
     CHILD_DURATIONS_OUT_ENV,
+    ENV_ENABLED,
     LANE_POLL_INTERVAL_SECONDS,
     SHOW_LANE_OUTPUT_ENV,
     TEST_ORCHESTRATION_CHILD_ENV,
+    env_flag_enabled,
 )
-from pytest_lanes.durations import DurationStore, InMemoryDurationStore, LaneRecord
+from pytest_lanes.durations import (
+    DurationStore,
+    InMemoryDurationStore,
+    LaneRecord,
+    lane_record_from_file,
+)
 from pytest_lanes.lanes import LaneCommand
 from pytest_lanes.report_aggregation import (
     aggregate_lane_reports,
     prepare_lane_reports,
 )
-from pytest_lanes.reporter import LaneConsolePresenter, LaneProgressReporter
+from pytest_lanes.reporter import (
+    LanePresenterDisplay,
+    LaneProgressReporter,
+    build_lane_display,
+)
 from pytest_lanes.scheduler import LaneWorkQueue, ordering_policy_for
+
+UNFINISHED_LANE_EXIT_CODE = int(ExitCode.INTERNAL_ERROR)
 
 
 @dataclass
@@ -45,7 +57,7 @@ class _LaneRun:
 class _RunContext:
     lane_output_queue: queue.Queue[tuple[str, str]]
     reporter: LaneProgressReporter
-    presenter: LaneConsolePresenter
+    presenter: LanePresenterDisplay
     durations_dir: Path
 
 
@@ -59,7 +71,7 @@ def run_lane_commands(
 ) -> int:
     start_wall = time.perf_counter()
     # The env var predates the flag; CI jobs use it without changing the command.
-    show_lane_output = show_lane_output or os.environ.get(SHOW_LANE_OUTPUT_ENV) == "1"
+    show_lane_output = show_lane_output or env_flag_enabled(SHOW_LANE_OUTPUT_ENV)
     reports_dir = Path(tempfile.mkdtemp(prefix="pytest-lanes-reports-"))
     commands, report_plan = prepare_lane_reports(commands, staging_dir=reports_dir)
     store = duration_store if duration_store is not None else InMemoryDurationStore()
@@ -72,7 +84,7 @@ def run_lane_commands(
     context = _RunContext(
         lane_output_queue=queue.Queue(),
         reporter=reporter,
-        presenter=LaneConsolePresenter(reporter, show_lane_stream=show_lane_output),
+        presenter=build_lane_display(reporter, show_lane_stream=show_lane_output),
         durations_dir=Path(tempfile.mkdtemp(prefix="pytest-lanes-durations-")),
     )
     work_queue = LaneWorkQueue(
@@ -91,10 +103,10 @@ def run_lane_commands(
             reader.join(timeout=0.2)
         context.presenter.stop()
 
+    _mark_unreported_lanes(reporter, runs, commands)
     _print_lane_outputs(reporter, show_lane_output)
 
     aggregate_lane_reports(report_plan, [command.name for command in commands])
-    shutil.rmtree(reports_dir, ignore_errors=True)
 
     wall_seconds = time.perf_counter() - start_wall
     context.presenter.print_summary(reporter, wall_seconds=wall_seconds)
@@ -102,10 +114,34 @@ def run_lane_commands(
     _record_run_durations(
         reporter, store, context.durations_dir, shard_parents=shard_parents
     )
+    # Deleting a large coverage/html staging tree must not delay the summary.
+    shutil.rmtree(reports_dir, ignore_errors=True)
     shutil.rmtree(context.durations_dir, ignore_errors=True)
 
-    exit_codes = [result["exit_code"] for result in reporter.lane_results()]
-    return max(exit_codes) if exit_codes else 0
+    return _run_exit_code(runs, expected_lane_count=len(commands))
+
+
+def _run_exit_code(runs: Sequence[_LaneRun], expected_lane_count: int) -> int:
+    """The worst lane outcome; a lane that never reported one has not passed."""
+    codes = [
+        UNFINISHED_LANE_EXIT_CODE if run.exit_code is None else run.exit_code
+        for run in runs
+    ]
+    if len(codes) < expected_lane_count:
+        codes.append(UNFINISHED_LANE_EXIT_CODE)
+    return max(codes, default=0)
+
+
+def _mark_unreported_lanes(
+    reporter: LaneProgressReporter,
+    runs: Sequence[_LaneRun],
+    commands: Sequence[LaneCommand],
+) -> None:
+    """Tell the reporter about lanes that never reported, so the summary agrees."""
+    reported = {run.name for run in runs if run.exit_code is not None}
+    for command in commands:
+        if command.name not in reported:
+            reporter.mark_unreported(command.name, UNFINISHED_LANE_EXIT_CODE)
 
 
 def _record_run_durations(
@@ -116,21 +152,19 @@ def _record_run_durations(
 ) -> None:
     parents = dict(shard_parents or {})
     finished: dict[str, LaneRecord] = {}
-    shard_measurements: dict[str, list[dict]] = {}
+    shard_measurements: dict[str, list[LaneRecord]] = {}
 
     for result in reporter.lane_results():
         if result["duration"] <= 0:
             continue
-        measured = _read_child_measurements(durations_dir / f"{result['name']}.json")
+        measured = lane_record_from_file(durations_dir / f"{result['name']}.json")
         parent = parents.get(result["name"])
         if parent is not None:
             shard_measurements.setdefault(parent, []).append(measured)
             continue
-        finished[result["name"]] = LaneRecord(
-            total=result["duration"],
-            startup=float(measured.get("startup", 0.0)),
-            collect=float(measured.get("collect", 0.0)),
-            files=tuple(sorted(dict(measured.get("files", {})).items())),
+        # The parent's wall time is authoritative over the child's self-report.
+        finished[result["name"]] = replace(
+            measured, total=result["duration"], files=tuple(sorted(measured.files))
         )
 
     for parent, measurements in shard_measurements.items():
@@ -140,34 +174,19 @@ def _record_run_durations(
         store.record(finished)
 
 
-def _merged_parent_record(measurements: list[dict]) -> LaneRecord:
+def _merged_parent_record(measurements: list[LaneRecord]) -> LaneRecord:
     """Fold shard measurements into one whole-lane record."""
     files: dict[str, float] = {}
     for measured in measurements:
-        files.update(dict(measured.get("files", {})))
-    startup = max(
-        (float(measured.get("startup", 0.0)) for measured in measurements),
-        default=0.0,
-    )
-    collect = max(
-        (float(measured.get("collect", 0.0)) for measured in measurements),
-        default=0.0,
-    )
-    files_seconds = sum(files.values())
+        files.update(measured.files)
+    startup = max((measured.startup for measured in measurements), default=0.0)
+    collect = max((measured.collect for measured in measurements), default=0.0)
     return LaneRecord(
-        total=startup + collect + files_seconds,
+        total=startup + collect + sum(files.values()),
         startup=startup,
         collect=collect,
         files=tuple(sorted(files.items())),
     )
-
-
-def _read_child_measurements(path: Path) -> dict:
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    return raw if isinstance(raw, dict) else {}
 
 
 def _run_scheduling_loop(
@@ -238,7 +257,7 @@ def _spawn_lane_subprocess(
     command: LaneCommand, durations_dir: Path
 ) -> subprocess.Popen[str]:
     env = os.environ.copy()
-    env[TEST_ORCHESTRATION_CHILD_ENV] = "1"
+    env[TEST_ORCHESTRATION_CHILD_ENV] = ENV_ENABLED
     env[CHILD_DURATIONS_OUT_ENV] = str(durations_dir / f"{command.name}.json")
     for key, value in command.env_set:
         env[key] = value
@@ -279,7 +298,7 @@ def stream_lane_output(
 def drain_lane_output_queue(
     lane_output_queue: queue.Queue[tuple[str, str]],
     reporter: LaneProgressReporter,
-    presenter: LaneConsolePresenter,
+    presenter: LanePresenterDisplay,
 ) -> None:
     while True:
         try:

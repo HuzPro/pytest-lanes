@@ -9,10 +9,13 @@ import pytest
 
 from pytest_lanes.config import LaneConfig, LaneSpec
 from pytest_lanes.config_discovery import discover_lane_config
+from pytest_lanes.layout import (
+    has_root_level_test_files,
+    test_bearing_subdirectories,
+)
 
 FALLBACK_LANE_NAME = "other"
 MINIMUM_USEFUL_PARTITION = 2
-_TEST_FILE_PATTERNS = ("test_*.py", "*_test.py")
 
 
 def resolve_lane_config_or_none(
@@ -61,13 +64,9 @@ def _parse_definition(definition: str) -> LaneSpec:
 
 def auto_lane_config_or_none(rootpath: Path) -> LaneConfig | None:
     """Build one lane per test-bearing immediate subdirectory of ``rootpath``."""
-    lane_dir_names = sorted(
-        directory.name
-        for directory in rootpath.iterdir()
-        if directory.is_dir()
-        and _is_lane_candidate(directory)
-        and _contains_test_files(directory)
-    )
+    lane_dir_names = [
+        directory.name for directory in test_bearing_subdirectories(rootpath)
+    ]
     if len(lane_dir_names) < MINIMUM_USEFUL_PARTITION:
         return None
 
@@ -84,31 +83,10 @@ def auto_lane_config_or_none(rootpath: Path) -> LaneConfig | None:
     lane_specs.append(fallback)
 
     order = list(lane_dir_names)
-    if _has_root_level_test_files(rootpath):
+    if has_root_level_test_files(rootpath):
         order.append(fallback.name)
 
     return LaneConfig(lanes=tuple(lane_specs), subprocess_order_standard=tuple(order))
-
-
-def _is_lane_candidate(directory: Path) -> bool:
-    if directory.name.startswith(".") or directory.name == "__pycache__":
-        return False
-    is_virtualenv = (directory / "pyvenv.cfg").exists()
-    return not is_virtualenv
-
-
-def _contains_test_files(directory: Path) -> bool:
-    return any(
-        next(directory.rglob(pattern), None) is not None
-        for pattern in _TEST_FILE_PATTERNS
-    )
-
-
-def _has_root_level_test_files(rootpath: Path) -> bool:
-    return any(
-        next(rootpath.glob(pattern), None) is not None
-        for pattern in _TEST_FILE_PATTERNS
-    )
 
 
 def _unclaimed_name(taken_names: Sequence[str]) -> str:

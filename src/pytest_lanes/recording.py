@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import json
 import time
 from collections.abc import Callable
 from pathlib import Path
+
+from pytest_lanes.durations import LaneRecord, write_json_file
 
 
 class ChildRunRecorder:
@@ -40,18 +41,15 @@ class ChildRunRecorder:
         session_start = (
             self._session_started_at if self._session_started_at is not None else now
         )
-        payload = {
-            "total": now - session_start,
-            "collect": self._elapsed_between(
-                session_start, self._collection_finished_at
-            ),
-            "startup": self._elapsed_between(
+        measured = LaneRecord(
+            total=now - session_start,
+            collect=self._elapsed_between(session_start, self._collection_finished_at),
+            startup=self._elapsed_between(
                 self._collection_finished_at, self._first_test_started_at
             ),
-            "files": self._file_seconds,
-        }
-        self._output_path.parent.mkdir(parents=True, exist_ok=True)
-        self._output_path.write_text(json.dumps(payload), encoding="utf-8")
+            files=tuple(self._file_seconds.items()),
+        )
+        write_json_file(self._output_path, measured.as_payload(), indent=None)
 
     def _elapsed_between(self, start: float | None, end: float | None) -> float:
         if start is None or end is None:

@@ -7,7 +7,8 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from pytest_lanes.durations import LaneRecord
+from pytest_lanes.durations import LaneRecord, total_seconds
+from pytest_lanes.ini_template import fallback_section, index_block, markers_block
 
 _MINIMUM_FILES_TO_BALANCE = 2
 # A directory heavier than the per-lane target is split at file granularity.
@@ -15,6 +16,12 @@ OVERSIZED_DIRECTORY_RATIO = 1.3
 # The catch-all's name; balanced lanes must never claim it.
 REST_LANE_NAME = "rest"
 _DEFAULT_LANE_NAME = "lane"
+_MARKER_ORIGIN = "balanced by pytest-lanes"
+_REST_NOTES = (
+    "# claims every test the lanes above do not - tests added since the",
+    "# durations were recorded run here instead of being silently skipped;",
+    "# tolerate_no_tests keeps an empty catch-all from failing the run",
+)
 
 
 @dataclass(frozen=True)
@@ -44,11 +51,16 @@ def format_balanced_suggestion(lanes: tuple[BalancedLane, ...]) -> str:
     if not lanes:
         return ""
 
-    names = [lane.name for lane in lanes]
-    lines = [*_header_lines(lanes), *_markers_block(names), *_index_block(names)]
+    # A balanced partition claims every recorded file, so every lane is scheduled.
+    declared = [lane.name for lane in lanes] + [REST_LANE_NAME]
+    lines = [
+        *_header_lines(lanes),
+        *markers_block(declared, _MARKER_ORIGIN),
+        *index_block(declared, scheduled=declared),
+    ]
     for lane in lanes:
         lines.extend(_lane_section(lane))
-    lines.extend(_rest_section())
+    lines.extend(fallback_section(REST_LANE_NAME, _REST_NOTES))
     return "\n".join(lines)
 
 
@@ -71,23 +83,6 @@ def _header_lines(lanes: tuple[BalancedLane, ...]) -> list[str]:
         "# Review and adjust, then verify the partition with:",
         "#     pytest . --lanes-explain",
         "",
-    ]
-
-
-def _markers_block(names: list[str]) -> list[str]:
-    lines = ["[pytest]", "markers ="]
-    for name in [*names, REST_LANE_NAME]:
-        lines.append(f"    {name}: {name} lane (balanced by pytest-lanes)")
-    return lines
-
-
-def _index_block(names: list[str]) -> list[str]:
-    scheduled = " ".join([*names, REST_LANE_NAME])
-    return [
-        "",
-        "[pytest-lanes]",
-        f"lanes = {scheduled}",
-        f"subprocess_order_standard = {scheduled}",
     ]
 
 
@@ -127,20 +122,6 @@ def _files_outside_whole_directories(lane: BalancedLane) -> tuple[str, ...]:
     )
 
 
-def _rest_section() -> list[str]:
-    return [
-        "",
-        f"[pytest-lanes:{REST_LANE_NAME}]",
-        "# claims every test the lanes above do not - tests added since the",
-        "# durations were recorded run here instead of being silently skipped;",
-        "# tolerate_no_tests keeps an empty catch-all from failing the run",
-        f"marker = {REST_LANE_NAME}",
-        "classifier_fallback = true",
-        "subprocess_ignore_other_lanes = true",
-        "tolerate_no_tests = true",
-    ]
-
-
 def _clamped_lane_count(requested: int, pooled: tuple[tuple[str, float], ...]) -> int:
     """Never plan more bins than there are files to put in them."""
     return max(1, min(requested, len(pooled)))
@@ -159,10 +140,10 @@ def _packing_units(
     pooled: tuple[tuple[str, float], ...], lane_count: int
 ) -> tuple[_PackingUnit, ...]:
     """Directories move whole, unless one is big enough to unbalance the run."""
-    oversized_seconds = OVERSIZED_DIRECTORY_RATIO * _total_seconds(pooled) / lane_count
+    oversized_seconds = OVERSIZED_DIRECTORY_RATIO * total_seconds(pooled) / lane_count
     units: list[_PackingUnit] = []
     for directory, files in _files_by_directory(pooled):
-        directory_seconds = _total_seconds(files)
+        directory_seconds = total_seconds(files)
         if directory_seconds > oversized_seconds:
             units.extend(
                 _PackingUnit(key=path, files=((path, seconds),), seconds=seconds)
@@ -195,14 +176,15 @@ def _lanes_heaviest_first(
 ) -> tuple[BalancedLane, ...]:
     """Heaviest lane first: the launch order the executor wants anyway."""
     filled = [files for files in bins if files]
-    ordered = sorted(filled, key=lambda files: (-_total_seconds(files), files[0][0]))
+    ordered = sorted(filled, key=lambda files: (-total_seconds(files), files[0][0]))
     names = _unique_names(tuple(_lane_name(files) for files in ordered))
+    paths_by_ancestor = _paths_by_ancestor(pooled)
     return tuple(
         BalancedLane(
             name=name,
             files=files,
-            projected_seconds=_total_seconds(files),
-            whole_directories=_whole_directories(files, pooled),
+            projected_seconds=total_seconds(files),
+            whole_directories=_whole_directories(files, paths_by_ancestor),
         )
         for name, files in zip(names, ordered)
     )
@@ -225,7 +207,7 @@ def _unique_names(preferred: tuple[str, ...]) -> tuple[str, ...]:
 
 def _whole_directories(
     lane_files: tuple[tuple[str, float], ...],
-    pooled: tuple[tuple[str, float], ...],
+    paths_by_ancestor: Mapping[str, set[str]],
 ) -> tuple[str, ...]:
     """Directories this lane can claim by prefix without stealing files."""
     claimed = {path for path, _ in lane_files}
@@ -233,7 +215,7 @@ def _whole_directories(
     whole = {
         directory
         for directory in candidates
-        if _pooled_paths_under(directory, pooled) <= claimed
+        if paths_by_ancestor.get(directory, frozenset()) <= claimed
     }
     return tuple(
         directory
@@ -242,10 +224,17 @@ def _whole_directories(
     )
 
 
-def _pooled_paths_under(
-    directory: str, pooled: tuple[tuple[str, float], ...]
-) -> set[str]:
-    return {path for path, _ in pooled if path.startswith(f"{directory}/")}
+def _paths_by_ancestor(
+    pooled: tuple[tuple[str, float], ...],
+) -> dict[str, set[str]]:
+    """Every pooled path indexed by each of its ancestor directories."""
+    under: dict[str, set[str]] = {}
+    for path, _ in pooled:
+        ancestor = _parent_directory(path)
+        while ancestor:
+            under.setdefault(ancestor, set()).add(path)
+            ancestor = _parent_directory(ancestor)
+    return under
 
 
 def _has_ancestor_in(directory: str, directories: set[str]) -> bool:
@@ -260,7 +249,7 @@ def _has_ancestor_in(directory: str, directories: set[str]) -> bool:
 def _lane_name(files: tuple[tuple[str, float], ...]) -> str:
     heaviest_directory, _ = min(
         _files_by_directory(files),
-        key=lambda entry: (-_total_seconds(entry[1]), entry[0]),
+        key=lambda entry: (-total_seconds(entry[1]), entry[0]),
     )
     return _marker_safe(_basename(heaviest_directory))
 
@@ -294,10 +283,6 @@ def _parent_directory(path: str) -> str:
 
 def _basename(directory: str) -> str:
     return directory.rpartition("/")[2]
-
-
-def _total_seconds(files: tuple[tuple[str, float], ...]) -> float:
-    return sum(seconds for _, seconds in files)
 
 
 def _pooled_files(

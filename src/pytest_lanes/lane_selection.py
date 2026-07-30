@@ -4,11 +4,18 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from pathlib import Path
+from typing import Protocol
 
 import pytest
 
 from pytest_lanes.config import LaneConfig
-from pytest_lanes.lanes import lane_for_item, other_lane_ignores
+from pytest_lanes.lanes import ClassifiableItem, lane_for_item, other_lane_ignores
+
+
+class MarkableItem(ClassifiableItem, Protocol):
+    """A classifiable item that can also carry pytest markers."""
+
+    def add_marker(self, marker: object) -> None: ...
 
 
 def parse_lane_selection(value: str | None) -> tuple[str, ...]:
@@ -37,13 +44,6 @@ def collection_args_for_lanes(
     """Return ``(positional_args, ignore_paths)`` for an in-process ``--lane=`` run."""
     positional: list[str] = []
     ignores: list[str] = []
-    seen_ignores: set[str] = set()
-
-    def _record_ignore(path: str) -> None:
-        if path in seen_ignores:
-            return
-        seen_ignores.add(path)
-        ignores.append(path)
 
     for name in selected:
         spec = lane_config.lane_by_name(name)
@@ -51,17 +51,15 @@ def collection_args_for_lanes(
             continue
         positional.extend(spec.subprocess_paths)
         positional.extend(spec.subprocess_nodeids)
-        for ignore_path in spec.subprocess_ignore:
-            _record_ignore(ignore_path)
+        ignores.extend(spec.subprocess_ignore)
         if spec.subprocess_ignore_other_lanes:
-            for ignore_path in other_lane_ignores(spec, lane_config):
-                _record_ignore(ignore_path)
+            ignores.extend(other_lane_ignores(spec, lane_config))
 
-    return positional, ignores
+    return positional, list(dict.fromkeys(ignores))
 
 
 def apply_lane_filter(
-    items: Iterable[object],
+    items: Iterable[MarkableItem],
     rootpath: Path,
     lane_config: LaneConfig,
     selected_lanes: tuple[str, ...],

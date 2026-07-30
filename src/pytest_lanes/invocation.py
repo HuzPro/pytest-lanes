@@ -3,6 +3,21 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
+from typing import Protocol
+
+
+class SupportsInvocationParams(Protocol):
+    """The part of a pytest config that reports the argv it was invoked with."""
+
+    @property
+    def invocation_params(self) -> _InvocationParams: ...
+
+
+class _InvocationParams(Protocol):
+    @property
+    def args(self) -> Sequence[str]: ...
+
 
 SELECTION_FLAGS = frozenset(
     {
@@ -15,19 +30,16 @@ SELECTION_FLAGS = frozenset(
     }
 )
 
+_SELECTION_PREFIXES = ("-k", "-m", "--lane=")
+
 # Uncaptured output streams live instead of folding into the summary.
 _CAPTURE_DISABLING_ARGS = frozenset({"-s", "--capture=no", "--capture"})
 _SHORT_OPTION_CLUSTER = re.compile(r"^-[a-zA-Z]+$")
 _CAPTURE_DISABLING_SHORT_OPTION = "s"
 
 
-def invocation_args(config: object) -> tuple[str, ...]:
-    invocation_params = getattr(config, "invocation_params", None)
-    if invocation_params is None:
-        return ()
-
-    args = getattr(invocation_params, "args", ())
-    return tuple(str(arg) for arg in args)
+def invocation_args(config: SupportsInvocationParams) -> tuple[str, ...]:
+    return tuple(str(arg) for arg in config.invocation_params.args)
 
 
 def is_positional_arg(arg: str) -> bool:
@@ -35,17 +47,10 @@ def is_positional_arg(arg: str) -> bool:
 
 
 def has_custom_selection(invocation_args_value: tuple[str, ...]) -> bool:
-    for arg in invocation_args_value:
-        if arg in SELECTION_FLAGS:
-            return True
-        if arg.startswith("-k") and arg != "-k":
-            return True
-        if arg.startswith("-m") and arg != "-m":
-            return True
-        if arg == "--lane" or arg.startswith("--lane="):
-            return True
-
-    return False
+    return any(
+        arg in SELECTION_FLAGS or arg == "--lane" or arg.startswith(_SELECTION_PREFIXES)
+        for arg in invocation_args_value
+    )
 
 
 def wants_live_lane_output(invocation_args_value: tuple[str, ...]) -> bool:

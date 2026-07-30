@@ -64,8 +64,20 @@ def test_suggestion_orders_infrastructure_heavy_lanes_first(tmp_path: Path) -> N
     suggestion = format_lane_suggestion(scan_project(tmp_path))
 
     assert "lanes = db_tests api_tests other" in suggestion
-    # An empty fallback would fail the run; keep it out of the order list.
+    # Launching a fallback with nothing to claim just wastes a subprocess.
     assert "subprocess_order_standard = db_tests api_tests\n" in suggestion
+
+
+def test_suggested_fallback_lane_tolerates_having_nothing_to_claim(
+    tmp_path: Path,
+) -> None:
+    _write_test_file(tmp_path / "api_tests")
+    _write_test_file(tmp_path / "db_tests")
+
+    suggestion = format_lane_suggestion(scan_project(tmp_path))
+
+    fallback_section = suggestion[suggestion.index("[pytest-lanes:other]") :]
+    assert "tolerate_no_tests = true" in fallback_section
 
 
 def test_root_level_tests_schedule_the_fallback_in_the_suggestion(

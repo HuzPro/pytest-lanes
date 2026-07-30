@@ -2,18 +2,17 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Sequence
 from pathlib import Path
 
 # The input is our own staged pytest output, so stdlib ElementTree is acceptable.
 from xml.etree import ElementTree
 
+from pytest_lanes.constants import lane_filename_token
+
 JUNIT_FLAGS: tuple[str, ...] = ("--junitxml", "--junit-xml")
 _VALUE_SEPARATOR = "="
 _STAGED_SUFFIX = ".xml"
-_UNSAFE_IN_FILENAME = re.compile(r"[^A-Za-z0-9_-]+")
-_UNNAMED_LANE = "lane"
 
 _SUITES_TAG = "testsuites"
 _SUITE_TAG = "testsuite"
@@ -60,7 +59,7 @@ def args_with_lane_junit_path(
 
 
 def lane_junit_path(lane_name: str, staging_dir: Path) -> Path:
-    return staging_dir / f"{_filename_token(lane_name)}{_STAGED_SUFFIX}"
+    return staging_dir / f"{lane_filename_token(lane_name)}{_STAGED_SUFFIX}"
 
 
 def merged_junit_document(documents: Sequence[str]) -> str:
@@ -137,12 +136,6 @@ def _serialized(root: ElementTree.Element) -> str:
     """One document, declaration first, byte-identical for equal inputs."""
     body = ElementTree.tostring(root, encoding="unicode")
     return f"{_XML_DECLARATION}\n{body}"
-
-
-def _filename_token(lane_name: str) -> str:
-    """Reduce a lane name to something safe to put in a filename."""
-    token = _UNSAFE_IN_FILENAME.sub("_", lane_name).strip("_")
-    return token or _UNNAMED_LANE
 
 
 def _matched_junit_flag(arg: str) -> str | None:
